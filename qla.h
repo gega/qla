@@ -47,6 +47,11 @@
 #endif
 #endif
 
+struct qla_rect
+{
+  int x, y, w, h;
+};
+
 
 #ifdef QLA_DECODE
 
@@ -56,7 +61,9 @@ struct qla_anim
   uint16_t height;
   uint32_t frame_no;
   uint32_t pos;
-  uint8_t *frames; // uint16_t delay + rectangle data + stray pixels
+  uint16_t delay;
+  struct qla_rect rect;
+  uint8_t *frames; // uint16_t delay + rectangle data
 };
 
 #endif
@@ -79,7 +86,7 @@ struct qla_encode
 #endif
 
 #ifdef QLA_DECODE
-int qla_rewind(struct qla_anim *qla);
+typedef size_t qla_read_t(void *fd, uint8_t *buf, size_t count);
 int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, uint32_t pixel_cnt);
 int qla_init(struct qla_anim *qla, uint16_t width, uint16_t height, uint16_t delay);
 int qla_init_header(struct qla_anim *qla, uint8_t *data);
@@ -103,7 +110,24 @@ int qla_rewind(struct qla_anim *qla)
   return(0);
 }
 
-int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, uint32_t pixel_cnt)
+ 117       size = qla_decode_frame( q, buf, sizeof(buf), &delay ); // buflen should be MAXTRANSFER
+
+/*
+ * decodes some part of the current rectangle. Puts the bytes to dest buffer no more than bufsize bytes.
+ * it decodes pixels so the length will be on pixel boundary. (if a pixel is two bytes, it will decode 
+ * even bytes) It will return the decoded bytes written in dest. This could be less than the available
+ * space even if aligned with pixel witdh. When a rectangle is fully decoded, decoder stops and returns
+ * to caller to let them push the rectngle to screen and the next call will start the next rectangle.
+ * the current data of the rectangle (coordinates and dimensions) can be found in the struct qla_anim.
+ * when the frame is fully decoded, the next call will return zero. At this time the delay field is valid
+ * in the struct qla_anim struct. The caller should measure the time elapsed from the beginning of the 
+ * frame and wait (delay - elapsed) milliseconds before calling this API again to go to the next frame.
+ * In this case the frame_no field contains the number of the _next_ frame. If this is zero that 
+ * indicates a loop, so the caller should rewind the file pointers or reset its memory pointers back to
+ * the first frame.
+ * 
+ */
+int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *delay_ms)
 {
   return(0);
 }
@@ -127,10 +151,6 @@ int qla_init_header(struct qla_anim *qla, uint8_t *data)
 #include <limits.h>
 
 
-struct qla_rect
-{
-  int x, y, w, h;
-};
 
 
 #define QLA_GET_24BIT_PIXEL(rgb,w,x,y) (uint32_t)((rgb)[(y)*(w)+(x)])
