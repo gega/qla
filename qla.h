@@ -164,24 +164,6 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
 {
   int pixel_count=0;
   
-  if(QLAF_NEWFRAME==(qla->flags&QLAF_NEWFRAME))
-  {
-    // new frame boundary
-    if(qla->pos+2 > qla->data_size)
-    {
-      if(NULL!=new_chunk) *new_chunk=1;
-      return(0);
-    }
-    // clear new frame flag
-    qla->flags&=~QLAF_NEWFRAME;
-    // frame pixel count
-    qla->frame_pixels=qla->width * qla->height;
-    // update delay
-    qla->delay=(((uint16_t)qla->data[qla->pos+0])<<8) | ((uint16_t)qla->data[qla->pos+1]);
-    qla->pos+=2;
-    qla->flags|=QLAF_NEWRECT;
-    return(QLA_NEWFRAME);
-  }
   if(QLAF_NEWRECT==(qla->flags&QLAF_NEWRECT))
   {
     if((qla->pos+(4*((!!qla->extended)*2))) > qla->data_size)
@@ -209,22 +191,55 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
       qla->pos+=4;
     }
     qla->rect_pixels=qla->rect.w * qla->rect.h;
-    printf("  NEWRECT\n  <rect_pixels=%d -- %dx%d>\n",qla->rect_pixels,qla->rect.w,qla->rect.h);
-    printf("  <qla pos=%d>\n  <size=%d>\n",qla->pos,qla->data_size - qla->pos);
-    qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->width*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
-    return(QLA_NEWRECT);
+    if( (qla->rect.x+qla->rect.y+qla->rect.w+qla->rect.h) != 0)
+    {
+      printf("  NEWRECT\n  <rect_pixels=%d -- %dx%d>\n",qla->rect_pixels,qla->rect.w,qla->rect.h);
+      printf("  <qla pos=%d>\n  <size=%d>\n",qla->pos,qla->data_size - qla->pos);
+      qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->width*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
+      return(QLA_NEWRECT);
+    }
+    else
+    {
+      qla->flags|=QLAF_NEWFRAME;
+      printf("  NEWFRAME!\n");
+    }
+  }
+  if(QLAF_NEWFRAME==(qla->flags&QLAF_NEWFRAME))
+  {
+    // new frame boundary
+    if(qla->pos+2 > qla->data_size)
+    {
+      if(NULL!=new_chunk) *new_chunk=1;
+      return(0);
+    }
+    // clear new frame flag
+    qla->flags&=~QLAF_NEWFRAME;
+    // frame pixel count
+    qla->frame_pixels=qla->width * qla->height;
+    // update delay
+    qla->delay=(((uint16_t)qla->data[qla->pos+0])<<8) | ((uint16_t)qla->data[qla->pos+1]);
+    printf("  [delay=%d]\n",qla->delay);
+    printf("  [pos=%d]\n",qla->pos);
+    qla->pos+=2;
+    qla->flags|=QLAF_NEWRECT;
+    return(QLA_NEWFRAME);
   }
   // decode
+  int32_t p1=qla->qli.pos;
   pixel_count=qli_decode(&qla->qli, dest, bufsize/QLI_BPP, new_chunk);
+  int32_t p2=qla->qli.pos;
+  printf("  [delta pos=%d]\n",p2-p1);
   printf("  [pixel_count=%d]\n",pixel_count);
 
   // housekeeping
   qla->frame_pixels-=pixel_count;
   qla->rect_pixels-=pixel_count;
+  qla->pos+=p2-p1;
   printf("  [frame_pixels=%d]\n",qla->frame_pixels);
   printf("  [rect_pixels=%d]\n",qla->rect_pixels);
+  printf("  [pos=%d]\n",qla->pos);
   // check if frame boundary
-  if(qla->frame_pixels==0) qla->flags|=QLAF_NEWFRAME;
+//  if(qla->frame_pixels==0) qla->flags|=QLAF_NEWFRAME;
   // check if rect finished
   if(qla->rect_pixels==0) qla->flags|=QLAF_NEWRECT;
 

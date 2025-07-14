@@ -171,12 +171,13 @@ int main(int argc, char **argv)
   else if(argv[1][0]=='d')
   {
     // decode (pseudo)
-#define READBUFLEN (22) /* even! */
-#define OUTBUFLEN (254) /* size ? */
+#define READBUFLEN (227777) /* even! */
+#define OUTBUFLEN (254777) /* size ? */
     uint8_t outbuf[OUTBUFLEN];
     uint8_t readbuf[READBUFLEN];
     uint32_t readbuf_len=0;
     uint8_t header[QLA_HEADER_LEN];
+    int xx,yy;
     int size;
     int loop=0;
     int new_chunk=0;
@@ -194,7 +195,7 @@ int main(int argc, char **argv)
       exit(0);
     }
     uint8_t *framebuffer=calloc(q.width*q.height,QLI_BPP);
-    int framebuffer_pos=0;
+ //   int framebuffer_pos=0;
     uint8_t *fb888=calloc(q.width*q.height,3);
     size_t first_frame=ftell(fp);
 //    time1_ms = time_now();
@@ -219,7 +220,7 @@ int main(int argc, char **argv)
       }
       if(size == QLA_NEWFRAME)
       {
-        framebuffer_pos=0;
+//        framebuffer_pos=0;
         if(frameno!=0)
         {
           FILE *fo=wppm_newframe("out",frameno);
@@ -233,7 +234,7 @@ int main(int argc, char **argv)
           }
           fwrite(fb888,q.width*q.height,3,fo);
           wppm_close(fo);
-          exit(0);
+          //exit(0);
         }
         if(!loop) frameno++;
         else
@@ -250,13 +251,28 @@ int main(int argc, char **argv)
       else if(size == QLA_NEWRECT)
       {
         printf(" SET_WINDOW %d,%d %dx%d\n",q.rect.x, q.rect.y, q.rect.w, q.rect.h);
+        xx=0;
+        yy=0;
       }
       else if(size>0)
       {
         unsigned long crc=crc32(0L, outbuf, size);
         printf(" SEND SPI %d bytes [%08lx] %02x %02x %02x %02x %02x %02x\n", size, crc, outbuf[0], outbuf[1], outbuf[2], outbuf[3], outbuf[4], outbuf[5]);
-        memcpy(&framebuffer[framebuffer_pos], outbuf, size);
-        framebuffer_pos+=size;
+        for(int i=0;i<size/QLI_BPP;i++)
+        {
+          for(int j=0;j<QLI_BPP;j++)
+          {
+            framebuffer[ j + ((q.rect.y+yy)*q.rect.w*QLI_BPP) + ((q.rect.x+xx)*QLI_BPP) ]=outbuf[i*QLI_BPP+j];
+          }
+          xx++;
+          if(xx>=q.rect.w)
+          {
+            xx=0;
+            yy++;
+          }
+        }
+        //memcpy(&framebuffer[framebuffer_pos], outbuf, size);
+        //framebuffer_pos+=size;
       }
     }
     free(framebuffer);
