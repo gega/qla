@@ -55,15 +55,29 @@ struct qla_rect
 
 #ifdef QLA_DECODE
 
+
+#define QLAF_NEWFRAME (1L<<0)
+#define QLAF_NEWRECT  (1L<<1)
+
+#define QLA_NEWFRAME (-1)
+#define QLA_NEWRECT  (-2)
+#define QLA_ERROR    (-99)
+
+
 struct qla_anim
 {
   uint16_t width;
   uint16_t height;
-  uint32_t frame_no;
-  uint32_t pos;
+  uint8_t extended;
+  uint8_t flags;
   uint16_t delay;
+  uint32_t pos;
   struct qla_rect rect;
-  uint8_t *frames; // uint16_t delay + rectangle data
+  uint32_t frame_pixels;
+  uint32_t rect_pixels;
+  struct qli_image qli;
+  uint8_t *data;
+  uint32_t data_size;
 };
 
 #endif
@@ -86,10 +100,11 @@ struct qla_encode
 #endif
 
 #ifdef QLA_DECODE
+int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_chunk);
 typedef size_t qla_read_t(void *fd, uint8_t *buf, size_t count);
-int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, uint32_t pixel_cnt);
-int qla_init(struct qla_anim *qla, uint16_t width, uint16_t height, uint16_t delay);
-int qla_init_header(struct qla_anim *qla, uint8_t *data);
+int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size);
+int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8_t *data, uint32_t data_size);
+
 #endif
 
 #ifdef QLA_ENCODE
@@ -105,19 +120,35 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
 
 #ifdef QLA_DECODE
 
-int qla_rewind(struct qla_anim *qla)
+int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size)
 {
+  if(NULL==qla||width==0||height==0) return(-1);
+  memset(qla,0,sizeof(struct qla_anim));
+  qla->extended=(qla->width>255 || qla->height>255);
+  qla->data=data;
+  qla->data_size=data_size;
+  qla->width=width;
+  qla->height=height;
+  qla->flags|=QLAF_NEWFRAME;
   return(0);
 }
 
- 117       size = qla_decode_frame( q, buf, sizeof(buf), &delay ); // buflen should be MAXTRANSFER
+void qla_new_chunk(struct qla_anim *qla, uint8_t *data, uint32_t data_size)
+{
+  if(NULL==qla||NULL==data) return;
+  qla->data=data;
+  qla->data_size=data_size;
+  qla->pos=0;
+  printf("QLA_NEW_CHUNK %d\n",data_size);
+  qli_new_chunk(&qla->qli, data, data_size);
+}
 
 /*
  * decodes some part of the current rectangle. Puts the bytes to dest buffer no more than bufsize bytes.
  * it decodes pixels so the length will be on pixel boundary. (if a pixel is two bytes, it will decode 
  * even bytes) It will return the decoded bytes written in dest. This could be less than the available
  * space even if aligned with pixel witdh. When a rectangle is fully decoded, decoder stops and returns
- * to caller to let them push the rectngle to screen and the next call will start the next rectangle.
+ * to caller to let them push the rectangle to screen and the next call will start the next rectangle.
  * the current data of the rectangle (coordinates and dimensions) can be found in the struct qla_anim.
  * when the frame is fully decoded, the next call will return zero. At this time the delay field is valid
  * in the struct qla_anim struct. The caller should measure the time elapsed from the beginning of the 
@@ -127,18 +158,93 @@ int qla_rewind(struct qla_anim *qla)
  * the first frame.
  * 
  */
-int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *delay_ms)
+ // buffer handling: use limited ram buffer
+ // worst case "compression" size for X output pixels: 2 byte delay + 4 byte rect (8 if ext) + size * 1.33
+int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_chunk)
 {
-  return(0);
+  int pixel_count=0;
+  
+  if(QLAF_NEWFRAME==(qla->flags&QLAF_NEWFRAME))
+  {
+    // new frame boundary
+    if(qla->pos+2 > qla->data_size)
+    {
+      if(NULL!=new_chunk) *new_chunk=1;
+      return(0);
+    }
+    // clear new frame flag
+    qla->flags&=~QLAF_NEWFRAME;
+    // frame pixel count
+    qla->frame_pixels=qla->width * qla->height;
+    // update delay
+    qla->delay=(((uint16_t)qla->data[qla->pos+0])<<8) | ((uint16_t)qla->data[qla->pos+1]);
+    qla->pos+=2;
+    qla->flags|=QLAF_NEWRECT;
+    return(QLA_NEWFRAME);
+  }
+  if(QLAF_NEWRECT==(qla->flags&QLAF_NEWRECT))
+  {
+    if((qla->pos+(4*((!!qla->extended)*2))) > qla->data_size)
+    {
+      if(NULL!=new_chunk) *new_chunk=1;
+      return(0);
+    }
+    // clear flag
+    qla->flags&=~QLAF_NEWRECT;
+    // update rect info
+    if(qla->extended)
+    {
+      qla->rect.x=qla->data[qla->pos+0]<<8 | qla->data[qla->pos+1];
+      qla->rect.y=qla->data[qla->pos+2]<<8 | qla->data[qla->pos+3];
+      qla->rect.w=qla->data[qla->pos+4]<<8 | qla->data[qla->pos+5];
+      qla->rect.h=qla->data[qla->pos+6]<<8 | qla->data[qla->pos+7];
+      qla->pos+=8;
+    }
+    else
+    {
+      qla->rect.x=qla->data[qla->pos+0];
+      qla->rect.y=qla->data[qla->pos+1];
+      qla->rect.w=qla->data[qla->pos+2];
+      qla->rect.h=qla->data[qla->pos+3];
+      qla->pos+=4;
+    }
+    qla->rect_pixels=qla->rect.w * qla->rect.h;
+    printf("  NEWRECT\n  <rect_pixels=%d -- %dx%d>\n",qla->rect_pixels,qla->rect.w,qla->rect.h);
+    printf("  <qla pos=%d>\n  <size=%d>\n",qla->pos,qla->data_size - qla->pos);
+    qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->width*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
+    return(QLA_NEWRECT);
+  }
+  // decode
+  pixel_count=qli_decode(&qla->qli, dest, bufsize/QLI_BPP, new_chunk);
+  printf("  [pixel_count=%d]\n",pixel_count);
+
+  // housekeeping
+  qla->frame_pixels-=pixel_count;
+  qla->rect_pixels-=pixel_count;
+  printf("  [frame_pixels=%d]\n",qla->frame_pixels);
+  printf("  [rect_pixels=%d]\n",qla->rect_pixels);
+  // check if frame boundary
+  if(qla->frame_pixels==0) qla->flags|=QLAF_NEWFRAME;
+  // check if rect finished
+  if(qla->rect_pixels==0) qla->flags|=QLAF_NEWRECT;
+
+  return(pixel_count*QLI_BPP);
 }
 
-int qla_init(struct qla_anim *qla, uint16_t width, uint16_t height, uint16_t delay)
+int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8_t *data, uint32_t data_size)
 {
-  return(0);
-}
-
-int qla_init_header(struct qla_anim *qla, uint8_t *data)
-{
+  if(hdr_size<QLA_HEADER_LEN||NULL==hdr||NULL==qla) return(-1);
+  if(	hdr[0]!=QLA_MAGIC0
+    ||	hdr[1]!=QLA_MAGIC1
+    ||	hdr[2]!=QLA_MAGIC2
+    ||	hdr[3]!=QLA_MAGIC3 ) return(-1);
+  qla->width =hdr[4]<<8 | hdr[5];
+  qla->height=hdr[6]<<8 | hdr[7];
+  if(hdr[8]!=QLI_PIXEL_FORMAT) return(-1);
+  if(hdr[9]!=qli_index_code[QLI_INDEX_SIZE]) return(-1);
+  qla->data=data;
+  qla->data_size=data_size;
+  qla_init_decode(qla, qla->width, qla->height, data, data_size);
   return(0);
 }
 
@@ -287,7 +393,7 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
   if(NULL==( singles = calloc(1, qle->width*qle->height) )) return(-1);
   extended=(qle->width>255 || qle->height>255);
   hdr=(extended ? sizeof(uint16_t)*4 : sizeof(uint8_t)*4);
-  // write frame header (delay after frame)
+  // write frame header (delay after frame) -- this is where the qla_anim pointer should be set
   buf[pos++] = (delay_ms>>8) & 0xff;
   buf[pos++] =  delay_ms     & 0xff;
   // encode frame
@@ -311,7 +417,8 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
   else
   {
     // subsequent frames
-    int ref_size=qli_encode(&rgb[0], qle->width, qle->height, qle->width*sizeof(uint32_t), NULL, 0);
+    //int ref_size=
+    qli_encode(&rgb[0], qle->width, qle->height, qle->width*sizeof(uint32_t), NULL, 0);
     // 1. make xor with curr_frame and rgb
     if(0>(qla_xor(qle->xor_buffer, qle->width, qle->height, qle->curr_frame, rgb))) return(-1);
     // 2. get the list of largest rectangles
@@ -365,24 +472,7 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
     }
     if(bufsize-pos<hdr) return(-1);
     // close dirty rect section
-    if(extended)
-    {
-      buf[pos++] = 0;
-      buf[pos++] = 0;
-      buf[pos++] = 0;
-      buf[pos++] = 0;
-      buf[pos++] = 0;
-      buf[pos++] = 0;
-      buf[pos++] = 0;
-      buf[pos++] = 0;
-    }
-    else
-    {
-      buf[pos++] = 0;
-      buf[pos++] = 0;
-      buf[pos++] = 0;
-      buf[pos++] = 0;
-    }
+    for(i=0; i<hdr; i++) buf[pos++]=0;
     if(NULL!=qle->buf_rel_cb) qle->buf_rel_cb(qle->curr_frame);
   }
 
