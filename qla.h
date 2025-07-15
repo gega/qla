@@ -73,7 +73,6 @@ struct qla_anim
   uint16_t delay;
   uint32_t pos;
   struct qla_rect rect;
-  uint32_t frame_pixels;
   uint32_t rect_pixels;
   struct qli_image qli;
   uint8_t *data;
@@ -190,12 +189,14 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
       qla->rect.h=qla->data[qla->pos+3];
       qla->pos+=4;
     }
+    printf("qla_decode_frame: WINDOW read pos=%d size=%d\n",qla->pos,qla->data_size);
     qla->rect_pixels=qla->rect.w * qla->rect.h;
     if( (qla->rect.x+qla->rect.y+qla->rect.w+qla->rect.h) != 0)
     {
       printf("  NEWRECT\n  <rect_pixels=%d -- %dx%d>\n",qla->rect_pixels,qla->rect.w,qla->rect.h);
       printf("  <qla pos=%d>\n  <size=%d>\n",qla->pos,qla->data_size - qla->pos);
-      qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->width*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
+//      qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->width*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
+      qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->rect.w*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
       return(QLA_NEWRECT);
     }
     else
@@ -214,8 +215,6 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
     }
     // clear new frame flag
     qla->flags&=~QLAF_NEWFRAME;
-    // frame pixel count
-    qla->frame_pixels=qla->width * qla->height;
     // update delay
     qla->delay=(((uint16_t)qla->data[qla->pos+0])<<8) | ((uint16_t)qla->data[qla->pos+1]);
     printf("  [delay=%d]\n",qla->delay);
@@ -226,20 +225,17 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
   }
   // decode
   int32_t p1=qla->qli.pos;
+  printf("qla_decode_frame: dest=%p\n",dest);
   pixel_count=qli_decode(&qla->qli, dest, bufsize/QLI_BPP, new_chunk);
   int32_t p2=qla->qli.pos;
   printf("  [delta pos=%d]\n",p2-p1);
   printf("  [pixel_count=%d]\n",pixel_count);
 
   // housekeeping
-  qla->frame_pixels-=pixel_count;
   qla->rect_pixels-=pixel_count;
   qla->pos+=p2-p1;
-  printf("  [frame_pixels=%d]\n",qla->frame_pixels);
   printf("  [rect_pixels=%d]\n",qla->rect_pixels);
   printf("  [pos=%d]\n",qla->pos);
-  // check if frame boundary
-//  if(qla->frame_pixels==0) qla->flags|=QLAF_NEWFRAME;
   // check if rect finished
   if(qla->rect_pixels==0) qla->flags|=QLAF_NEWRECT;
 

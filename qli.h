@@ -301,11 +301,15 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
   if(qli->pixels_left == 0) return(0);
   if(qli->pixels_left < pixel_cnt) pixel_cnt=qli->pixels_left;
 
+//printf("qli_decode: stride=%d w/bpp=%d\n",qli->stride,qli->width*QLI_BPP);
+//printf("qli_decode: pixel_cnt=%d dest=%p\n",pixel_cnt,dest);
   while(pixel_cnt>0 && ( qli->pos<0 || qli->pos<=qli->size) )
   {
     if(qli->run>0)
     {
+  //    printf("  qli_decode: pixel_cnt=%5d run=%3d dest=%p\n",pixel_cnt,qli->run,dest);
       for(i=0;i<QLI_BPP;i++) *dest++ = qli->px[ABS(QLI_ENDIAN-i)];
+    //  printf("  qli_decode:                         dest=%p\n",dest);
       qli->x++;
       if(qli->x==qli->width)
       {

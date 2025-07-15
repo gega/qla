@@ -171,13 +171,13 @@ int main(int argc, char **argv)
   else if(argv[1][0]=='d')
   {
     // decode (pseudo)
-#define READBUFLEN (227777) /* even! */
-#define OUTBUFLEN (254777) /* size ? */
+#define READBUFLEN (512) /* even! */
+#define OUTBUFLEN (254) /* size ? */
     uint8_t outbuf[OUTBUFLEN];
     uint8_t readbuf[READBUFLEN];
     uint32_t readbuf_len=0;
     uint8_t header[QLA_HEADER_LEN];
-    int xx,yy;
+    int xx,yy,rcol;
     int size;
     int loop=0;
     int new_chunk=0;
@@ -253,16 +253,25 @@ int main(int argc, char **argv)
         printf(" SET_WINDOW %d,%d %dx%d\n",q.rect.x, q.rect.y, q.rect.w, q.rect.h);
         xx=0;
         yy=0;
+        rcol=rand()%0xffff;
       }
       else if(size>0)
       {
         unsigned long crc=crc32(0L, outbuf, size);
         printf(" SEND SPI %d bytes [%08lx] %02x %02x %02x %02x %02x %02x\n", size, crc, outbuf[0], outbuf[1], outbuf[2], outbuf[3], outbuf[4], outbuf[5]);
+        printf(" RECT xx=%d yy=%d x=%d y=%d w=%d h=%d\n",xx,yy,q.rect.x,q.rect.y,q.rect.w,q.rect.h);
         for(int i=0;i<size/QLI_BPP;i++)
         {
           for(int j=0;j<QLI_BPP;j++)
           {
-            framebuffer[ j + ((q.rect.y+yy)*q.rect.w*QLI_BPP) + ((q.rect.x+xx)*QLI_BPP) ]=outbuf[i*QLI_BPP+j];
+            if(q.rect.w<0)
+            {
+            framebuffer[ j + ((q.rect.y+yy)*q.width*QLI_BPP) + ((q.rect.x+xx)*QLI_BPP) ]=rcol;
+            }
+            else
+            {
+            framebuffer[ j + ((q.rect.y+yy)*q.width*QLI_BPP) + ((q.rect.x+xx)*QLI_BPP) ]=outbuf[i*QLI_BPP+j];
+            }
           }
           xx++;
           if(xx>=q.rect.w)
