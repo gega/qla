@@ -275,6 +275,9 @@ int QLI_FUNC_NAME(qli_init_header, QLI_POSTFIX) (struct qli_image *qli, uint8_t 
 
 #ifdef QLI_DECODE
 
+int DBG_POS[2000];
+int DBG_POS_SIZE=sizeof(DBG_POS);
+
 #define QLI_GETNEXTBYTE(qli) ( ((qli)->pos>=0) ? ((qli)->data[(qli)->pos++]) : ((qli)->rem[QLI_REMBUFSIZ+((qli)->pos++)]) )
 
 
@@ -284,6 +287,7 @@ void QLI_FUNC_NAME(qli_new_chunk, QLI_POSTFIX) (struct qli_image *qli, uint8_t *
   qli->data=data;
   qli->size=data_size;
   qli->pos=-qli->remcnt;
+  DBG_POS[__LINE__]++;
   qli->remcnt=0;
 }
 
@@ -324,6 +328,7 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
 
     if(qli->pos>0 && qli->pos >= qli->size) break;
     d1 = QLI_GETNEXTBYTE(qli);
+    DBG_POS[__LINE__]++;
     uint8_t cm = d1&QLI_CMD_MASK;
 
     if (QLI_OP_RGB == d1)
@@ -336,10 +341,15 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
         {
           memmove(&qli->rem[0],&qli->rem[1],QLI_REMBUFSIZ-1);
           qli->rem[sizeof(qli->rem)-1]=QLI_GETNEXTBYTE(qli);
+          DBG_POS[__LINE__]++;
         }
         break;
       }
-      for(i=0;i<QLI_BPP;i++) qli->px[i] = QLI_GETNEXTBYTE(qli);
+      for(i=0;i<QLI_BPP;i++)
+      {
+        qli->px[i] = QLI_GETNEXTBYTE(qli);
+        DBG_POS[__LINE__]++; 
+      }
       QLI_UPDATE_INDEX(qli, qli->px);
       qli->run=1;
     }
@@ -374,6 +384,7 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
         break;
       }
       int d2 = QLI_GETNEXTBYTE(qli);
+      DBG_POS[__LINE__]++;
       int vg = (d1 & 0x3f) - 32;
       r += QLI_R_FACTOR * (vg - 8 + ((d2 >> 4) & 0x0f));
       g += QLI_G_FACTOR * (vg);

@@ -138,7 +138,7 @@ void qla_new_chunk(struct qla_anim *qla, uint8_t *data, uint32_t data_size)
   qla->data=data;
   qla->data_size=data_size;
   qla->pos=0;
-  printf("QLA_NEW_CHUNK %d\n",data_size);
+  fprintf(stderr,"QLA_NEW_CHUNK %d\n",data_size);
   qli_new_chunk(&qla->qli, data, data_size);
 }
 
@@ -189,12 +189,12 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
       qla->rect.h=qla->data[qla->pos+3];
       qla->pos+=4;
     }
-    printf("qla_decode_frame: WINDOW read pos=%d size=%d\n",qla->pos,qla->data_size);
+    fprintf(stderr,"qla_decode_frame: WINDOW read pos=%d size=%d\n",qla->pos,qla->data_size);
     qla->rect_pixels=qla->rect.w * qla->rect.h;
     if( (qla->rect.x+qla->rect.y+qla->rect.w+qla->rect.h) != 0)
     {
-      printf("  NEWRECT\n  <rect_pixels=%d -- %dx%d>\n",qla->rect_pixels,qla->rect.w,qla->rect.h);
-      printf("  <qla pos=%d>\n  <size=%d>\n",qla->pos,qla->data_size - qla->pos);
+      fprintf(stderr,"  NEWRECT\n  <rect_pixels=%d -- %dx%d>\n",qla->rect_pixels,qla->rect.w,qla->rect.h);
+      fprintf(stderr,"  <qla pos=%d>\n  <size=%d>\n",qla->pos,qla->data_size - qla->pos);
 //      qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->width*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
       qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->rect.w*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
       return(QLA_NEWRECT);
@@ -202,7 +202,7 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
     else
     {
       qla->flags|=QLAF_NEWFRAME;
-      printf("  NEWFRAME!\n");
+      fprintf(stderr,"  NEWFRAME!\n");
     }
   }
   if(QLAF_NEWFRAME==(qla->flags&QLAF_NEWFRAME))
@@ -217,25 +217,25 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
     qla->flags&=~QLAF_NEWFRAME;
     // update delay
     qla->delay=(((uint16_t)qla->data[qla->pos+0])<<8) | ((uint16_t)qla->data[qla->pos+1]);
-    printf("  [delay=%d]\n",qla->delay);
-    printf("  [pos=%d]\n",qla->pos);
+    fprintf(stderr,"  [delay=%d]\n",qla->delay);
+    fprintf(stderr,"  [pos=%d]\n",qla->pos);
     qla->pos+=2;
     qla->flags|=QLAF_NEWRECT;
     return(QLA_NEWFRAME);
   }
   // decode
   int32_t p1=qla->qli.pos;
-  printf("qla_decode_frame: dest=%p\n",dest);
+  fprintf(stderr,"qla_decode_frame: dest=%p\n",dest);
   pixel_count=qli_decode(&qla->qli, dest, bufsize/QLI_BPP, new_chunk);
   int32_t p2=qla->qli.pos;
-  printf("  [delta pos=%d]\n",p2-p1);
-  printf("  [pixel_count=%d]\n",pixel_count);
+  fprintf(stderr,"  [delta pos=%d]\n",p2-p1);
+  fprintf(stderr,"  [pixel_count=%d]\n",pixel_count);
 
   // housekeeping
   qla->rect_pixels-=pixel_count;
   qla->pos+=p2-p1;
-  printf("  [rect_pixels=%d]\n",qla->rect_pixels);
-  printf("  [pos=%d]\n",qla->pos);
+  fprintf(stderr,"  [rect_pixels=%d]\n",qla->rect_pixels);
+  fprintf(stderr,"  [pos=%d]\n",qla->pos);
   // check if rect finished
   if(qla->rect_pixels==0) qla->flags|=QLAF_NEWRECT;
 

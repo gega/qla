@@ -113,6 +113,16 @@ static unsigned long crc32(unsigned long crc, const void *_p, size_t len)
 	return (crc ^ 0xffffffffUL);
 }
 
+extern int DBG_POS[];
+extern int DBG_POS_SIZE;
+
+static void DBG_POS_PRINT(int fno)
+{
+  fprintf(stderr,"FRAME #%d\n",fno);
+  for(int i=0;i<1000;i++) if(DBG_POS[i]>0) { fprintf(stderr,"line %5d = %d\n",i,DBG_POS[i]); DBG_POS[i]=0; }
+  fprintf(stderr,"\n");
+}
+
 // calling ./qla delay filename-stem output-dir
 // filename template: "filename-stem%03d.ppm" , counter
 int main(int argc, char **argv)
@@ -144,7 +154,7 @@ int main(int argc, char **argv)
       snprintf(fnam,sizeof(fnam),"%s%03d.ppm",argv[3],counter);
       imgp = (imgp+1) % 3;
       if(0!=rppm_load(&img[imgp], fnam)) break;
-      printf("ppm opened '%s'\n",fnam);
+      fprintf(stderr,"ppm opened '%s'\n",fnam);
       if(!inited)
       {
         // write header
@@ -155,11 +165,11 @@ int main(int argc, char **argv)
         buflen=QLA_HEADER_LEN+img[imgp].width*img[imgp].height*QLI_BPP;
         buf=malloc(buflen);
         if(NULL==buf) { fprintf(stderr,"Out of memory\n"); exit(1); }
-        printf("header written\n");
+        fprintf(stderr,"header written\n");
         inited=1;
       }
       frame_len = qla_encode_frame(&qla, img[imgp].pixels, delay, buf, buflen);
-      printf("frame %d encoded (%d bytes)\n",counter, frame_len);
+      fprintf(stderr,"frame %d encoded (%d bytes)\n",counter, frame_len);
       fwrite(buf, frame_len, 1, f);
       if(ferror(f)) { fprintf(stderr,"Write error\n"); exit(1); }
     }
@@ -171,7 +181,7 @@ int main(int argc, char **argv)
   else if(argv[1][0]=='d')
   {
     // decode (pseudo)
-#define READBUFLEN (512) /* even! */
+#define READBUFLEN (511999) /* even! */
 #define OUTBUFLEN (254) /* size ? */
     uint8_t outbuf[OUTBUFLEN];
     uint8_t readbuf[READBUFLEN];
@@ -191,7 +201,7 @@ int main(int argc, char **argv)
     int st=qla_init_header(&q, header, sizeof(header), NULL, 0);
     if(st!=0) 
     {
-      printf("ERROR init header\n");
+      fprintf(stderr,"ERROR init header\n");
       exit(0);
     }
     uint8_t *framebuffer=calloc(q.width*q.height,QLI_BPP);
@@ -202,18 +212,26 @@ int main(int argc, char **argv)
     while( 1 )
     {
       size = qla_decode_frame(&q, outbuf, sizeof(outbuf), &new_chunk);
-      printf(" DECODE %d [%d]\n",size, new_chunk);
+      fprintf(stderr," DECODE %d [%d]\n",size, new_chunk);
       if(new_chunk)
       {
         new_chunk=0;
         readbuf_len=fread(readbuf, 1, MIN(sizeof(readbuf),insize), fp);
+        fprintf(stderr," READST %d bytes\n",readbuf_len);
         insize-=readbuf_len;
-        printf(" READ NEW CHUNK %d bytes\n",readbuf_len);
+        fprintf(stderr," READ NEW CHUNK %d bytes\n",readbuf_len);
         qla_new_chunk(&q, readbuf, readbuf_len);
-        if(feof(fp))
+        if(readbuf_len==0)
         {
           // loop!
-          printf(" LOOP!\n");
+          fprintf(stderr," LOOP!\n");
+          fseek(fp, first_frame, SEEK_SET);
+          loop=1;
+          break;
+        }
+        if(feof(fp))
+        {
+          fprintf(stderr," LOOP DELAY!\n");
           fseek(fp, first_frame, SEEK_SET);
           loop=1;
         }
@@ -221,6 +239,7 @@ int main(int argc, char **argv)
       if(size == QLA_NEWFRAME)
       {
 //        framebuffer_pos=0;
+        DBG_POS_PRINT(frameno);
         if(frameno!=0)
         {
           FILE *fo=wppm_newframe("out",frameno);
@@ -246,11 +265,11 @@ int main(int argc, char **argv)
         //time2_ms = time_now();
         //if( (time2_ms-time1_ms) < q.delay ) sleep( q.delay-(time2_ms-time1_ms) );
         //time1_ms = time2_ms;
-        printf("FRANE NO #%d\n",frameno);
+        fprintf(stderr,"FRANE NO #%d\n",frameno);
       }
       else if(size == QLA_NEWRECT)
       {
-        printf(" SET_WINDOW %d,%d %dx%d\n",q.rect.x, q.rect.y, q.rect.w, q.rect.h);
+        fprintf(stderr," SET_WINDOW %d,%d %dx%d\n",q.rect.x, q.rect.y, q.rect.w, q.rect.h);
         xx=0;
         yy=0;
         rcol=rand()%0xffff;
@@ -258,8 +277,8 @@ int main(int argc, char **argv)
       else if(size>0)
       {
         unsigned long crc=crc32(0L, outbuf, size);
-        printf(" SEND SPI %d bytes [%08lx] %02x %02x %02x %02x %02x %02x\n", size, crc, outbuf[0], outbuf[1], outbuf[2], outbuf[3], outbuf[4], outbuf[5]);
-        printf(" RECT xx=%d yy=%d x=%d y=%d w=%d h=%d\n",xx,yy,q.rect.x,q.rect.y,q.rect.w,q.rect.h);
+        fprintf(stderr," SEND SPI %d bytes [%08lx] %02x %02x %02x %02x %02x %02x\n", size, crc, outbuf[0], outbuf[1], outbuf[2], outbuf[3], outbuf[4], outbuf[5]);
+        fprintf(stderr," RECT xx=%d yy=%d x=%d y=%d w=%d h=%d\n",xx,yy,q.rect.x,q.rect.y,q.rect.w,q.rect.h);
         for(int i=0;i<size/QLI_BPP;i++)
         {
           for(int j=0;j<QLI_BPP;j++)
