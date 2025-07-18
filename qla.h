@@ -56,8 +56,8 @@ struct qla_rect
 #ifdef QLA_DECODE
 
 
-#define QLAF_NEWFRAME (1L<<0)
-#define QLAF_NEWRECT  (1L<<1)
+#define QLAF_NEWFRAME (1L<<3)
+#define QLAF_NEWRECT  (1L<<4)
 
 #define QLA_NEWFRAME (-1)
 #define QLA_NEWRECT  (-2)
@@ -70,6 +70,7 @@ struct qla_anim
   uint16_t height;
   uint8_t extended;
   uint8_t flags;
+  int8_t rectfill;
   uint16_t delay;
   uint32_t pos;
   struct qla_rect rect;
@@ -165,35 +166,47 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
   
   if(QLAF_NEWRECT==(qla->flags&QLAF_NEWRECT))
   {
-    if((qla->pos+(4*((!!qla->extended)*2))) > qla->data_size)
-    {
-      if(NULL!=new_chunk) *new_chunk=1;
-      return(0);
-    }
-    // clear flag
-    qla->flags&=~QLAF_NEWRECT;
+    if(qla->rectfill!=0) fprintf(stderr,"KUTYA QLAF_NEWRECT rectfill=%d\n",qla->rectfill);
+    if(qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; return(0); }
     // update rect info
     if(qla->extended)
     {
-      qla->rect.x=qla->data[qla->pos+0]<<8 | qla->data[qla->pos+1];
-      qla->rect.y=qla->data[qla->pos+2]<<8 | qla->data[qla->pos+3];
-      qla->rect.w=qla->data[qla->pos+4]<<8 | qla->data[qla->pos+5];
-      qla->rect.h=qla->data[qla->pos+6]<<8 | qla->data[qla->pos+7];
-      qla->pos+=8;
+      if(qla->rectfill>=0) qla->rect.x=qla->data[qla->pos++]<<8;
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(qla->rectfill>=0) qla->rect.x|=qla->data[qla->pos++];
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(qla->rectfill>=0) qla->rect.y=qla->data[qla->pos++]<<8;
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(qla->rectfill>=0) qla->rect.y|=qla->data[qla->pos++];
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(qla->rectfill>=0) qla->rect.w=qla->data[qla->pos++]<<8;
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(qla->rectfill>=0) qla->rect.w|=qla->data[qla->pos++];
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(qla->rectfill>=0) qla->rect.h=qla->data[qla->pos++]<<8;
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(qla->rectfill>=0) qla->rect.h|=qla->data[qla->pos++];
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
     }
     else
     {
-      qla->rect.x=qla->data[qla->pos+0];
-      qla->rect.y=qla->data[qla->pos+1];
-      qla->rect.w=qla->data[qla->pos+2];
-      qla->rect.h=qla->data[qla->pos+3];
-      qla->pos+=4;
+      if(qla->rectfill>=0) qla->rect.x=qla->data[qla->pos++];
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(qla->rectfill>=0) qla->rect.y=qla->data[qla->pos++];
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(qla->rectfill>=0) qla->rect.w=qla->data[qla->pos++];
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(qla->rectfill>=0) qla->rect.h=qla->data[qla->pos++];
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
     }
+    // clear flags
+    qla->flags&=~QLAF_NEWRECT;
+    qla->rectfill=0;
     fprintf(stderr,"qla_decode_frame: WINDOW read pos=%d size=%d\n",qla->pos,qla->data_size);
     qla->rect_pixels=qla->rect.w * qla->rect.h;
     if( (qla->rect.x+qla->rect.y+qla->rect.w+qla->rect.h) != 0)
     {
-      fprintf(stderr,"  NEWRECT\n  <rect_pixels=%d -- %dx%d>\n",qla->rect_pixels,qla->rect.w,qla->rect.h);
+      fprintf(stderr,"  NEWRECT\n  <rect_pixels=%d -- %d,%d %dx%d>\n",qla->rect_pixels,qla->rect.x,qla->rect.y,qla->rect.w,qla->rect.h);
       fprintf(stderr,"  <qla pos=%d>\n  <size=%d>\n",qla->pos,qla->data_size - qla->pos);
 //      qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->width*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
       qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->rect.w*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
@@ -207,25 +220,24 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
   }
   if(QLAF_NEWFRAME==(qla->flags&QLAF_NEWFRAME))
   {
+    if(qla->rectfill!=0) fprintf(stderr,"KUTYA QLAF_NEWFRAME rectfill=%d\n",qla->rectfill);
     // new frame boundary
-    if(qla->pos+2 > qla->data_size)
-    {
-      if(NULL!=new_chunk) *new_chunk=1;
-      return(0);
-    }
+    if(qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; return(0); }
+    // update delay
+    if(qla->rectfill>=0) qla->delay=(((uint16_t)qla->data[qla->pos++])<<8);
+    if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+    if(qla->rectfill>=0) qla->delay|=((uint16_t)qla->data[qla->pos++]);
+    if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+    qla->rectfill=0;
     // clear new frame flag
     qla->flags&=~QLAF_NEWFRAME;
-    // update delay
-    qla->delay=(((uint16_t)qla->data[qla->pos+0])<<8) | ((uint16_t)qla->data[qla->pos+1]);
     fprintf(stderr,"  [delay=%d]\n",qla->delay);
     fprintf(stderr,"  [pos=%d]\n",qla->pos);
-    qla->pos+=2;
     qla->flags|=QLAF_NEWRECT;
     return(QLA_NEWFRAME);
   }
   // decode
   int32_t p1=qla->qli.pos;
-  fprintf(stderr,"qla_decode_frame: dest=%p\n",dest);
   pixel_count=qli_decode(&qla->qli, dest, bufsize/QLI_BPP, new_chunk);
   int32_t p2=qla->qli.pos;
   fprintf(stderr,"  [delta pos=%d]\n",p2-p1);

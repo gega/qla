@@ -121,7 +121,7 @@ struct qli_image
   uint16_t stride;
   uint16_t x;
   uint8_t px[QLI_BPP];
-  uint8_t remcnt;
+  int8_t remcnt;
   uint8_t rem[QLI_REMBUFSIZ];
   uint8_t index[QLI_BPP][1L<<QLI_INDEX_SIZE];
   QLI_USERDATA
@@ -328,30 +328,53 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
 
     if(qli->pos>0 && qli->pos >= qli->size) break;
     d1 = QLI_GETNEXTBYTE(qli);
+if(qli->pos<=1) fprintf(stderr,"==HURKA %d pos=%d data 0x%02x\n",__LINE__,qli->pos,d1);
     DBG_POS[__LINE__]++;
     uint8_t cm = d1&QLI_CMD_MASK;
 
     if (QLI_OP_RGB == d1)
     {
-      if((qli->pos+QLI_BPP) >= qli->size)
+/* hiba itt */
+      if((qli->pos+QLI_BPP) > qli->size)
       {
+        fprintf(stderr,"--HURKA pos=%d size=%d data = 0x%02x ",qli->pos,qli->size,QLI_OP_RGB);
+        qli->remcnt=qli->size-qli->pos+1;
+        i=sizeof(qli->rem)-qli->remcnt;
+        qli->rem[i++]=QLI_OP_RGB;
+        for(;i<sizeof(qli->rem);i++)
+        {
+          qli->rem[i]=QLI_GETNEXTBYTE(qli);
+          fprintf(stderr," 0x%02x ",qli->rem[i]);
+          DBG_POS[__LINE__]++;
+        }
+        fprintf(stderr,"\n--HURKA remcnt=%d BPP=%d\n",qli->remcnt,QLI_BPP);
+        qli->run=0;
+/*
         qli->rem[sizeof(qli->rem)-1]=QLI_OP_RGB;
         qli->remcnt=1;
         for(i=sizeof(qli->rem)-1; i>=0 && qli->pos<qli->size; i--,qli->remcnt++)
         {
           memmove(&qli->rem[0],&qli->rem[1],QLI_REMBUFSIZ-1);
           qli->rem[sizeof(qli->rem)-1]=QLI_GETNEXTBYTE(qli);
+          fprintf(stderr," 0x%02x ",qli->rem[sizeof(qli->rem)-1]);
           DBG_POS[__LINE__]++;
         }
-        break;
+        fprintf(stderr,"\n--HURKA remcnt=%d BPP=%d\n",qli->remcnt,QLI_BPP);
+        qli->run=0;
+*/
       }
-      for(i=0;i<QLI_BPP;i++)
+      else
       {
-        qli->px[i] = QLI_GETNEXTBYTE(qli);
-        DBG_POS[__LINE__]++; 
+/* hiba vege */
+        for(i=0;i<QLI_BPP;i++)
+        {
+          qli->px[i] = QLI_GETNEXTBYTE(qli);
+if(qli->pos<=2) fprintf(stderr,"==HURKA %d pos=%d data 0x%02x\n",__LINE__,qli->pos,qli->px[i]);
+          DBG_POS[__LINE__]++; 
+        }
+        QLI_UPDATE_INDEX(qli, qli->px);
+        qli->run=1;
       }
-      QLI_UPDATE_INDEX(qli, qli->px);
-      qli->run=1;
     }
     else if(QLI_OP_INDEX == cm)
     {
@@ -377,22 +400,50 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
       int r = QLI_PX_GET_RED(qli->px);
       int g = QLI_PX_GET_GREEN(qli->px);
       int b = QLI_PX_GET_BLUE(qli->px);
-      if(qli->pos>0 && qli->pos >= qli->size)
+      if((qli->pos+1) > qli->size)
       {
+        fprintf(stderr,"--HURKA LUMA pos=%d size=%d data = 0x%02x ",qli->pos,qli->size,d1);
+        qli->remcnt=qli->size-qli->pos+1;
+        i=sizeof(qli->rem)-qli->remcnt;
+        qli->rem[i++]=d1;
+        for(;i<sizeof(qli->rem);i++)
+        {
+          qli->rem[i]=QLI_GETNEXTBYTE(qli);
+          fprintf(stderr," 0x%02x ",qli->rem[i]);
+          DBG_POS[__LINE__]++;
+        }
+        fprintf(stderr,"\n--HURKA LUMA remcnt=%d\n",qli->remcnt);
+        qli->run=0;
+
+/*
+        fprintf(stderr,"--HURKA LUMA pos=%d size=%d data = ",qli->pos,qli->size);
         qli->rem[sizeof(qli->rem)-1]=d1;
         qli->remcnt=1;
-        break;
+        for(i=sizeof(qli->rem)-1; i>=0 && qli->pos<qli->size; i--,qli->remcnt++)
+        {
+          memmove(&qli->rem[0],&qli->rem[1],QLI_REMBUFSIZ-1);
+          qli->rem[sizeof(qli->rem)-1]=QLI_GETNEXTBYTE(qli);
+          fprintf(stderr," 0x%02x ",qli->rem[sizeof(qli->rem)-1]);
+          DBG_POS[__LINE__]++;
+        }
+        fprintf(stderr,"\n--HURKA remcnt=%d MAX=%d\n",qli->remcnt,1);
+        qli->run=0;
+*/
       }
-      int d2 = QLI_GETNEXTBYTE(qli);
-      DBG_POS[__LINE__]++;
-      int vg = (d1 & 0x3f) - 32;
-      r += QLI_R_FACTOR * (vg - 8 + ((d2 >> 4) & 0x0f));
-      g += QLI_G_FACTOR * (vg);
-      b += QLI_B_FACTOR * (vg - 8 +  (d2       & 0x0f));
-      qli_pixel_t rgb = QLI_RGB_PACK(r,g,b);
-      for(int i=0;i<QLI_BPP;i++) qli->px[i] = (rgb>>(8*(QLI_BPP-i-1)))&0xff;
-      QLI_UPDATE_INDEX(qli, qli->px);
-      qli->run=1;
+      else
+      {
+        int d2 = QLI_GETNEXTBYTE(qli);
+if(qli->pos<=1) fprintf(stderr,"==HURKA %d data 0x%02x\n",__LINE__,d2);
+        DBG_POS[__LINE__]++;
+        int vg = (d1 & 0x3f) - 32;
+        r += QLI_R_FACTOR * (vg - 8 + ((d2 >> 4) & 0x0f));
+        g += QLI_G_FACTOR * (vg);
+        b += QLI_B_FACTOR * (vg - 8 +  (d2       & 0x0f));
+        qli_pixel_t rgb = QLI_RGB_PACK(r,g,b);
+        for(int i=0;i<QLI_BPP;i++) qli->px[i] = (rgb>>(8*(QLI_BPP-i-1)))&0xff;
+        QLI_UPDATE_INDEX(qli, qli->px);
+        qli->run=1;
+      }
     }
     else if(QLI_OP_RUN == cm)
     {
