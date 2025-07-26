@@ -63,6 +63,8 @@ struct qla_rect
 #define QLA_NEWRECT  (-2)
 #define QLA_ERROR    (-99)
 
+#define QLA_FLUSH (QLI_FLUSH)
+
 
 struct qla_anim
 {
@@ -104,7 +106,6 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
 typedef size_t qla_read_t(void *fd, uint8_t *buf, size_t count);
 int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size);
 int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8_t *data, uint32_t data_size);
-
 #endif
 
 #ifdef QLA_ENCODE
@@ -172,32 +173,32 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
     if(qla->extended)
     {
       if(qla->rectfill>=0) qla->rect.x=qla->data[qla->pos++]<<8;
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
       if(qla->rectfill>=0) qla->rect.x|=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
       if(qla->rectfill>=0) qla->rect.y=qla->data[qla->pos++]<<8;
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
       if(qla->rectfill>=0) qla->rect.y|=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
       if(qla->rectfill>=0) qla->rect.w=qla->data[qla->pos++]<<8;
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
       if(qla->rectfill>=0) qla->rect.w|=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
       if(qla->rectfill>=0) qla->rect.h=qla->data[qla->pos++]<<8;
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
       if(qla->rectfill>=0) qla->rect.h|=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
     }
     else
     {
       if(qla->rectfill>=0) qla->rect.x=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
       if(qla->rectfill>=0) qla->rect.y=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
       if(qla->rectfill>=0) qla->rect.w=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
       if(qla->rectfill>=0) qla->rect.h=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
     }
     // clear flags
     qla->flags&=~QLAF_NEWRECT;
@@ -222,12 +223,18 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
   {
     if(qla->rectfill!=0) fprintf(stderr,"KUTYA QLAF_NEWFRAME rectfill=%d\n",qla->rectfill);
     // new frame boundary
-    if(qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; return(0); }
+    if(qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWFRAME interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; return(0); }
     // update delay
     if(qla->rectfill>=0) qla->delay=(((uint16_t)qla->data[qla->pos++])<<8);
-    if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+    if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWFRAME interrupted SHORTCUT\n");   if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
     if(qla->rectfill>=0) qla->delay|=((uint16_t)qla->data[qla->pos++]);
-    if(++qla->rectfill>0&&qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+    if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWFRAME interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+    if(qla->delay==8448)
+    {
+      fprintf(stderr,"KUTYA QLA one byte off ERROR detected\npos realigned\n");
+      qla->delay=33;
+      qla->pos--;
+    }
     qla->rectfill=0;
     // clear new frame flag
     qla->flags&=~QLAF_NEWFRAME;

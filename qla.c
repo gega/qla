@@ -24,7 +24,9 @@
 #define LE_GET_GREEN(rgb565) (uint8_t)BE_GET_GREEN(((rgb565>>8L)|(rgb565<<8L)))
 #define LE_GET_BLUE(rgb565)  (uint8_t)BE_GET_BLUE(((rgb565>>8L)|(rgb565<<8L)))
 
+#ifndef MIN
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#endif
 
 
 static struct rppm img[3]={0};
@@ -52,17 +54,20 @@ static FILE *wppm_newframe(char *name, int frameno)
 
 static void wppm_header(FILE *f, int width, int height)
 {
-/*
-  - A "magic number" for identifying the file type. A ppm image's magic number is the two characters "P6".
-  - Whitespace (blanks, TABs, CRs, LFs).
-  - A width, formatted as ASCII characters in decimal.
-  - Whitespace.
-  - A height, again in ASCII decimal.
-  - Whitespace.
-  - The maximum color value (Maxval), again in ASCII decimal. Must be less than 65536 and more than zero.
-  - A single whitespace character (usually a newline).
-  - A raster of Height rows, in order from top to bottom. Each row consists of Width pixels, in order from left to right. Each pixel is a triplet of red, green, and blue samples, in that order. Each sample is represented in pure binary by either 1 or 2 bytes. If the Maxval is less than 256, it is 1 byte. Otherwise, it is 2 bytes. The most significant byte is first. 
- */
+  /*
+    - A "magic number" for identifying the file type. A ppm image's magic number is the two characters "P6".
+    - Whitespace (blanks, TABs, CRs, LFs).
+    - A width, formatted as ASCII characters in decimal.
+    - Whitespace.
+    - A height, again in ASCII decimal.
+    - Whitespace.
+    - The maximum color value (Maxval), again in ASCII decimal. Must be less than 65536 and more than zero.
+    - A single whitespace character (usually a newline).
+    - A raster of Height rows, in order from top to bottom. Each row consists of Width pixels, in order from left to right.
+      Each pixel is a triplet of red, green, and blue samples, in that order. Each sample is represented in pure binary by
+      either 1 or 2 bytes. If the Maxval is less than 256, it is 1 byte. Otherwise, it is 2 bytes. The most significant
+      byte is first. 
+   */
   fprintf(f, "P6\n%d %d\n255\n",width,height);
 }
 
@@ -181,7 +186,7 @@ int main(int argc, char **argv)
   else if(argv[1][0]=='d')
   {
     // decode (pseudo)
-#define READBUFLEN (101) /* even! */
+#define READBUFLEN (103) /* even! */
 #define OUTBUFLEN (254) /* size ? */
     uint8_t outbuf[OUTBUFLEN];
     uint8_t readbuf[READBUFLEN];
@@ -211,7 +216,7 @@ int main(int argc, char **argv)
 //    time1_ms = time_now();
     while( 1 )
     {
-      size = qla_decode_frame(&q, outbuf, sizeof(outbuf), &new_chunk);
+      size = qla_decode_frame(&q, outbuf, sizeof(outbuf), (feof(fp) ? QLA_FLUSH : &new_chunk) );
       fprintf(stderr," DECODE %d [%d]\n",size, new_chunk);
       if(new_chunk)
       {
