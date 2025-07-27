@@ -186,7 +186,7 @@ int main(int argc, char **argv)
   else if(argv[1][0]=='d')
   {
     // decode (pseudo)
-#define READBUFLEN (103) /* even! */
+#define READBUFLEN (3778) /* even! */
 #define OUTBUFLEN (254) /* size ? */
     uint8_t outbuf[OUTBUFLEN];
     uint8_t readbuf[READBUFLEN];
@@ -270,6 +270,10 @@ int main(int argc, char **argv)
         //time2_ms = time_now();
         //if( (time2_ms-time1_ms) < q.delay ) sleep( q.delay-(time2_ms-time1_ms) );
         //time1_ms = time2_ms;
+        if(q.delay!=33)
+        {
+          fprintf(stderr,"ERRORFRAME %d (delay=%d)\n",frameno,q.delay);
+        }
         fprintf(stderr,"FRANE NO #%d\n",frameno);
       }
       else if(size == QLA_NEWRECT)

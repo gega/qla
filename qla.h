@@ -232,7 +232,13 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
     if(qla->delay==8448)
     {
       fprintf(stderr,"KUTYA QLA one byte off ERROR detected\npos realigned\n");
-      qla->delay=33;
+      qla->delay=34;
+      qla->pos--;
+    }
+    else if(qla->delay!=33)
+    {
+      fprintf(stderr,"KUTYA QLA unknown ERROR detected! delay=%d\n",qla->delay);
+      qla->delay=35;
       qla->pos--;
     }
     qla->rectfill=0;

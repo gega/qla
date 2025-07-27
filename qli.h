@@ -117,7 +117,7 @@ struct qli_image
   uint8_t *data;
   int32_t pos;
   uint32_t run;
-  uint32_t pixels_left;
+  int32_t pixels_left;
   int32_t size;
   uint16_t width;
   uint16_t height;
@@ -140,8 +140,9 @@ struct qli_image
 int QLI_FUNC_NAME(qli_init, QLI_POSTFIX) (struct qli_image *qli, uint16_t width, uint16_t height, uint16_t stride, uint8_t *data, int32_t data_size);
 int QLI_FUNC_NAME(qli_init_header, QLI_POSTFIX) (struct qli_image *qli, uint8_t *header, int32_t size);
 void QLI_FUNC_NAME(qli_rewind, QLI_POSTFIX) (struct qli_image *qli);
-int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest, uint32_t pixel_cnt, int *new_chunk);
+int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest, int32_t pixel_cnt, int *new_chunk);
 void QLI_FUNC_NAME(qli_new_chunk, QLI_POSTFIX) (struct qli_image *qli, uint8_t *data, int32_t data_size);
+int QLI_FUNC_NAME(qli_get_next_byte, QLI_POSTFIX) (struct qli_image *qli, int *new_chunk);
 #endif
 
 #ifdef QLI_ENCODE
@@ -306,11 +307,50 @@ void QLI_FUNC_NAME(qli_new_chunk, QLI_POSTFIX) (struct qli_image *qli, uint8_t *
   DBG_POS[__LINE__]++;
 }
 
+/*
+ * return the next available byte for metadata processing
+ * because of input buffer handling, the leftover buffer may contain valid data, it is opaque for the caller so we provide a way
+ * to read the remaining data from the stream
+ *
+ * arguments:
+ *  qli       - context
+ *  new_chunk - request new chunk if needed
+ *  
+ * return:
+ *  error code:
+ *   positive: the byte read
+ *   negative: error code (not enough data in buffer or argument error)
+ */
+int QLI_FUNC_NAME(qli_get_next_byte, QLI_POSTFIX) (struct qli_image *qli, int *new_chunk)
+{
+  int ret;
+
+  if(!qli) return(-1);
+  if(qli->remcnt==0)
+  {
+    if(qli->size>qli->pos)
+    {
+      ret=qli->data[qli->pos++];
+    }
+    else
+    {
+      if(new_chunk) *new_chunk=1;
+      ret=-1;
+    }
+  }
+  else
+  {
+    
+  }
+  
+  return(ret);
+}
+
 /* decoding pixel_cnt pixels to the supplied destination area
  *
  * RETURN: number of pixels extracted
  */
-int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest, uint32_t pixel_cnt, int *new_chunk)
+int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest, int32_t pixel_cnt, int *new_chunk)
 {
   int ret=0;
   int flush=0;
@@ -411,8 +451,8 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
   for(readover=mode=0;mode<=1;mode++)
   {
     CR.pos+=readover;
-    fprintf(stderr,"%s: %d %s(): inner loop next mode=%d pos=%d size=%d pixel_cnt=%d\n",__FILE__,__LINE__,__FUNCTION__,mode,CR.pos,CR.size,pixel_cnt);
-    while( CR.pos<CR.size && pixel_cnt>0 )
+    fprintf(stderr,"%s: %d %s(): inner loop next mode=%d pos=%d size=%d pixel_cnt=%d run=%d\n",__FILE__,__LINE__,__FUNCTION__,mode,CR.pos,CR.size,pixel_cnt,qli->run);
+    while( pixel_cnt>0 && (qli->run>0 || CR.pos<CR.size) )
     {
       if(qli->run>0)
       {
@@ -492,7 +532,13 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
   }
 #undef CR // inner loop END ----------------------------------------------------------------------------
   qli->pixels_left-=ret;
-  // TODO: check readover and copy rem and set remcnt for next call
+  if(crsr[0].size>0)
+  {
+    // if leftover was processed but not consumed fully, preserve the remaining part for further reading
+    if(crsr[0].size-crsr[0].pos>0) fprintf(stderr,"%s: %d %s(): leftover has remainder: total leftover %d, remaining: %d\n",__FILE__,__LINE__,__FUNCTION__,crsr[0].size,crsr[0].size-crsr[0].pos);
+    if(crsr[0].size-crsr[0].pos>0) memmove(&qli->rem[0],&qli->rem[crsr[0].pos],crsr[0].size-crsr[0].pos);
+    qli->remcnt=(crsr[0].size-crsr[0].pos<0 ? 0 : crsr[0].size-crsr[0].pos);
+  }
   if(!flush)
   {
 Leftover:
@@ -500,7 +546,6 @@ Leftover:
     if(crsr[1].pos>=crsr[1].size && qli->pixels_left>0) *new_chunk=1;
     fprintf(stderr,"%s: %d %s(): pos=%d size=%d pixels_left=%d new_chunk=%d\n",__FILE__,__LINE__,__FUNCTION__,crsr[1].pos,crsr[1].size,qli->pixels_left,*new_chunk);
     qli->pos=crsr[1].pos;
-    qli->remcnt=0;
     if(*new_chunk)
     {
       fprintf(stderr,"%s: %d %s(): new chunk calculate leftover: from:%d size=%d ( <-- size=%d - pos=%d )\n",__FILE__,__LINE__,__FUNCTION__,qli->pos,qli->size-qli->pos,qli->size,qli->pos);
@@ -512,7 +557,7 @@ Leftover:
   fprintf(stderr,"%s: %d %s(): return ret=%d\n",__FILE__,__LINE__,__FUNCTION__,ret);
   return(ret);
 
-  // never reached
+  // never reached, prevent warning
   goto Leftover;
 }
 
