@@ -340,7 +340,9 @@ int QLI_FUNC_NAME(qli_get_next_byte, QLI_POSTFIX) (struct qli_image *qli, int *n
   }
   else
   {
-    
+    ret=qli->rem[0];
+    qli->remcnt--;
+    memmove(&qli->rem[0],&qli->rem[1],qli->remcnt);
   }
   
   return(ret);

@@ -73,6 +73,8 @@ struct qla_anim
   uint8_t extended;
   uint8_t flags;
   int8_t rectfill;
+  int8_t metai;		// next index in metab[] buffer zero when set new state		
+  uint8_t metab[8];     // metadata buffer for a) rectangle dimensions b) delay for new frames
   uint16_t delay;
   uint32_t pos;
   struct qla_rect rect;
@@ -165,46 +167,36 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
 {
   int pixel_count=0;
   
+  if(!new_chunk) return(QLA_ERROR);
   if(QLAF_NEWRECT==(qla->flags&QLAF_NEWRECT))
   {
-    if(qla->rectfill!=0) fprintf(stderr,"KUTYA QLAF_NEWRECT rectfill=%d\n",qla->rectfill);
-    if(qla->pos==qla->data_size) { if(NULL!=new_chunk) *new_chunk=1; return(0); }
-    // update rect info
+    for(;qla->metai<(qla->extended?8:4);qla->metai++)
+    {
+      int32_t p1=qla->qli.pos;
+      qla->metab[qla->metai]=qli_get_next_byte(&qla->qli,new_chunk);
+      int32_t p2=qla->qli.pos;
+      qla->pos+=p2-p1;
+      if(*new_chunk) return(0);
+    }
     if(qla->extended)
     {
-      if(qla->rectfill>=0) qla->rect.x=qla->data[qla->pos++]<<8;
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
-      if(qla->rectfill>=0) qla->rect.x|=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
-      if(qla->rectfill>=0) qla->rect.y=qla->data[qla->pos++]<<8;
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
-      if(qla->rectfill>=0) qla->rect.y|=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
-      if(qla->rectfill>=0) qla->rect.w=qla->data[qla->pos++]<<8;
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
-      if(qla->rectfill>=0) qla->rect.w|=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
-      if(qla->rectfill>=0) qla->rect.h=qla->data[qla->pos++]<<8;
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
-      if(qla->rectfill>=0) qla->rect.h|=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      qla->rect.x=qla->metab[0]<<8 | qla->metab[1];
+      qla->rect.y=qla->metab[2]<<8 | qla->metab[3];
+      qla->rect.w=qla->metab[4]<<8 | qla->metab[5];
+      qla->rect.h=qla->metab[6]<<8 | qla->metab[7];
     }
     else
     {
-      if(qla->rectfill>=0) qla->rect.x=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
-      if(qla->rectfill>=0) qla->rect.y=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
-      if(qla->rectfill>=0) qla->rect.w=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
-      if(qla->rectfill>=0) qla->rect.h=qla->data[qla->pos++];
-      if(++qla->rectfill>0&&qla->pos==qla->data_size) { fprintf(stderr,"QLAF_NEWRECT interrupted SHORTCUT\n");  if(NULL!=new_chunk) *new_chunk=1; qla->rectfill*=-1; return(0); }
+      qla->rect.x=qla->metab[0];
+      qla->rect.y=qla->metab[1];
+      qla->rect.w=qla->metab[2];
+      qla->rect.h=qla->metab[3];
     }
     // clear flags
     qla->flags&=~QLAF_NEWRECT;
-    qla->rectfill=0;
     fprintf(stderr,"qla_decode_frame: WINDOW read pos=%d size=%d\n",qla->pos,qla->data_size);
     qla->rect_pixels=qla->rect.w * qla->rect.h;
+    qla->metai=0;
     if( (qla->rect.x+qla->rect.y+qla->rect.w+qla->rect.h) != 0)
     {
       fprintf(stderr,"  NEWRECT\n  <rect_pixels=%d -- %d,%d %dx%d>\n",qla->rect_pixels,qla->rect.x,qla->rect.y,qla->rect.w,qla->rect.h);
