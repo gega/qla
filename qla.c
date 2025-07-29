@@ -186,7 +186,7 @@ int main(int argc, char **argv)
   else if(argv[1][0]=='d')
   {
     // decode (pseudo)
-#define READBUFLEN (101) /* even! */
+#define READBUFLEN (233) /* even! */
 #define OUTBUFLEN (254) /* size ? */
     uint8_t outbuf[OUTBUFLEN];
     uint8_t readbuf[READBUFLEN];
