@@ -248,6 +248,10 @@ void QLI_FUNC_NAME(qli_rewind, QLI_POSTFIX) (struct qli_image *qli)
 int QLI_FUNC_NAME(qli_init, QLI_POSTFIX) (struct qli_image *qli, uint16_t width, uint16_t height, uint16_t stride, uint8_t *data, int32_t data_size)
 {
   if(NULL==qli) return(-1);
+  fprintf(stderr,"==> DATA");
+  int eddig=(data_size>20?20:data_size);
+  for(int i=0;i<eddig;i++) fprintf(stderr," %02x",data[i]);
+  fprintf(stderr,"\n");
   qli->width = width;
   qli->height = height;
   qli->stride = stride;
@@ -305,6 +309,7 @@ void QLI_FUNC_NAME(qli_new_chunk, QLI_POSTFIX) (struct qli_image *qli, uint8_t *
   qli->size=data_size;
   qli->pos=0;
   DBG_POS[__LINE__]++;
+  fprintf(stderr,"--> qli_new_chunk size=%d\n",data_size);
 }
 
 /*
@@ -373,6 +378,19 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
     new_chunk=&flush;
   }
 
+/*
+  if(qli->remcnt<=0 && qli->size<QLI_MAX_TOKEN_LEN && !flush)
+  {
+    
+    fprintf(stderr,"==> TOO SMALL SIZE (%d), NEWCHUNK!\n",qli->size);
+    *new_chunk=1;
+    return(0);
+  }
+  else if(qli->size<QLI_MAX_TOKEN_LEN)
+  {
+    fprintf(stderr,"==> TOO SMALL SIZE (%d), !!NO!! NEWCHUNK! remcnt=%d flush=%d\n",qli->size,qli->remcnt,flush);
+  }
+*/
   if(qli->remcnt>0)
   {
     fprintf(stderr,"%s: %d %s(): leftover true\n",__FILE__,__LINE__,__FUNCTION__);
@@ -421,7 +439,7 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
   {
   fprintf(stderr,"%s: %d %s(): main data too short!\n",__FILE__,__LINE__,__FUNCTION__);
     // main data is too short to reduce it for safe processing
-    if(crsr[0].pos<=crsr[0].size)
+    if(crsr[0].size>0)
     {
   fprintf(stderr,"%s: %d %s(): main data too short, leftover true, fake readover\n",__FILE__,__LINE__,__FUNCTION__);
       // will be leftover processing
@@ -476,20 +494,26 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
 
       if (QLI_OP_RGB == d1)
       {
-      fprintf(stderr,"OP RGB pos=%d read=%d size=%d\n",CR.pos,QLI_BPP,CR.size);
+        fprintf(stderr,"OP RGB pos=%d read=%d size=%d\n",CR.pos,QLI_BPP,CR.size);
+        fprintf(stderr,"== RGB... ");
         for(i=0;i<QLI_BPP;i++)
         {
           qli->px[i] = QLI_GETNEXTBYTE(qli);
+          fprintf(stderr," 0x%02x",qli->px[i]);
           DBG_POS[__LINE__]++; 
         }
         QLI_UPDATE_INDEX(qli, qli->px);
         qli->run=1;
+        fprintf(stderr,"%3d    -\n==> pos=%5d size=%5d remcnt=%2d\n",qli->run,CR.pos,CR.size,qli->remcnt);
       }
       else if(QLI_OP_INDEX == cm)
       {
         d1&=(1L<<QLI_INDEX_SIZE)-1;
+        fprintf(stderr,"== INDEX. ");
         for(i=0;i<QLI_BPP;i++) qli->px[i] = qli->index[i][d1];
+        for(i=0;i<QLI_BPP;i++) fprintf(stderr," 0x%02x",qli->px[i]);
         qli->run=1;
+        fprintf(stderr,"%3d    -\n==> pos=%5d size=%5d remcnt=%2d\n",qli->run,CR.pos,CR.size,qli->remcnt);
       }
       else if(QLI_OP_DIFF == cm)
       {
@@ -500,9 +524,12 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
         g += QLI_G_FACTOR * (((d1 >> 2) & 0x03) - 2);
         b += QLI_B_FACTOR * (( d1       & 0x03) - 2);
         qli_pixel_t rgb = QLI_RGB_PACK(r,g,b);
+        fprintf(stderr,"== DIFF.. ");
         for(int i=0;i<QLI_BPP;i++) qli->px[i] = (rgb>>(8*(QLI_BPP-i-1)))&0xff;
+        for(i=0;i<QLI_BPP;i++) fprintf(stderr," 0x%02x",qli->px[i]);
         QLI_UPDATE_INDEX(qli, qli->px);
         qli->run=1;
+        fprintf(stderr,"%3d    -\n==> pos=%5d size=%5d remcnt=%2d\n",qli->run,CR.pos,CR.size,qli->remcnt);
       }
       else if(QLI_OP_LUMA == cm)
       {
@@ -519,10 +546,16 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
         for(int i=0;i<QLI_BPP;i++) qli->px[i] = (rgb>>(8*(QLI_BPP-i-1)))&0xff;
         QLI_UPDATE_INDEX(qli, qli->px);
         qli->run=1;
+        fprintf(stderr,"== LUMA.. ");
+        for(i=0;i<QLI_BPP;i++) fprintf(stderr," 0x%02x",qli->px[i]);
+        fprintf(stderr,"%3d    -\n==> pos=%5d size=%5d remcnt=%2d\n",qli->run,CR.pos,CR.size,qli->remcnt);
       }
       else if(QLI_OP_RUN == cm)
       {
         qli->run=1+(d1&0x3f);
+        fprintf(stderr,"== RUN... ");
+        for(i=0;i<QLI_BPP;i++) fprintf(stderr," 0x%02x",qli->px[i]);
+        fprintf(stderr,"%3d    -\n==> pos=%5d size=%5d remcnt=%2d\n",qli->run,CR.pos,CR.size,qli->remcnt);
       }
     }
     // calculate readover

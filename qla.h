@@ -141,7 +141,7 @@ void qla_new_chunk(struct qla_anim *qla, uint8_t *data, uint32_t data_size)
   qla->data=data;
   qla->data_size=data_size;
   qla->pos=0;
-  fprintf(stderr,"QLA_NEW_CHUNK %d\n",data_size);
+  fprintf(stderr,"--> QLA_NEW_CHUNK size=%d\n",data_size);
   qli_new_chunk(&qla->qli, data, data_size);
 }
 
@@ -169,13 +169,15 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
   if(!new_chunk) return(QLA_ERROR);
   if(QLAF_NEWRECT==(qla->flags&QLAF_NEWRECT))
   {
-    for(;qla->metai<(qla->extended?8:4);qla->metai++)
+    while(qla->metai<(qla->extended?8:4))
     {
       int32_t p1=qla->qli.pos;
       qla->metab[qla->metai]=qli_get_next_byte(&qla->qli,new_chunk);
       int32_t p2=qla->qli.pos;
-      qla->pos+=p2-p1;
+      if(*new_chunk) fprintf(stderr,"qla_decode_frame: rect interrupted at %d\n",qla->metai);
       if(*new_chunk) return(0);
+      qla->pos+=p2-p1;
+      qla->metai++;
     }
     if(qla->extended)
     {
@@ -201,7 +203,11 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
       fprintf(stderr,"  NEWRECT\n  <rect_pixels=%d -- %d,%d %dx%d>\n",qla->rect_pixels,qla->rect.x,qla->rect.y,qla->rect.w,qla->rect.h);
       fprintf(stderr,"  <qla pos=%d>\n  <size=%d>\n",qla->pos,qla->data_size - qla->pos);
 //      qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->width*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
+      int rc1=qla->qli.remcnt;
+      fprintf(stderr,"==> NEWRECT qli_init(%d) %3d,%3d %3dx%3d [rem=%2d apos=%5d ipos=%5d]\n",qla->data_size - qla->pos, qla->rect.x,qla->rect.y,qla->rect.w,qla->rect.h, qla->qli.remcnt, qla->pos, qla->qli.pos);
       qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->rect.w*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
+      int rc2=qla->qli.remcnt;
+      if(rc1!=0||rc2!=0) fprintf(stderr,"newrect ERROR qli_init rc1=%d rc2=%d\n",rc1,rc2);
       return(QLA_NEWRECT);
     }
     else
@@ -212,13 +218,15 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
   }
   if(QLAF_NEWFRAME==(qla->flags&QLAF_NEWFRAME))
   {
-    for(;qla->metai<2;qla->metai++)
+    while(qla->metai<2)
     {
       int32_t p1=qla->qli.pos;
       qla->metab[qla->metai]=qli_get_next_byte(&qla->qli,new_chunk);
       int32_t p2=qla->qli.pos;
-      qla->pos+=p2-p1;
+      if(*new_chunk) fprintf(stderr,"qla_decode_frame: delay interrupted at %d\n",qla->metai);
       if(*new_chunk) return(0);
+      qla->pos+=p2-p1;
+      qla->metai++;
     }
     qla->metai=0;
     // update delay
@@ -233,7 +241,7 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
     {
       fprintf(stderr,"KUTYA QLA unknown ERROR detected! delay=%d\n",qla->delay);
       qla->delay=35;
-      qla->pos--;
+      qla->pos++;
     }
     // clear new frame flag
     qla->flags&=~QLAF_NEWFRAME;
