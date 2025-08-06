@@ -1,6 +1,10 @@
 //gcc -fsanitize=address -fsanitize=leak -fno-omit-frame-pointer -Wall -g -o q q.c qla qla.c
+//gcc -O0 -g --coverage -fcondition-coverage -fsanitize=address -fsanitize=leak -fno-omit-frame-pointer -Wall -Wdangling-pointer -g -o qla qla.c
 #include <stdio.h>
 #include <stdlib.h>
+
+
+extern char DBG_BUFFER[];
 
 
 #define QLI_PIXEL_FORMAT 0
@@ -118,16 +122,6 @@ static unsigned long crc32(unsigned long crc, const void *_p, size_t len)
 	return (crc ^ 0xffffffffUL);
 }
 
-extern int DBG_POS[];
-extern int DBG_POS_SIZE;
-
-static void DBG_POS_PRINT(int fno)
-{
-  fprintf(stderr,"FRAME #%d\n",fno);
-  for(int i=0;i<1000;i++) if(DBG_POS[i]>0) { fprintf(stderr,"line %5d = %d\n",i,DBG_POS[i]); DBG_POS[i]=0; }
-  fprintf(stderr,"\n");
-}
-
 // calling ./qla delay filename-stem output-dir
 // filename template: "filename-stem%03d.ppm" , counter
 int main(int argc, char **argv)
@@ -186,8 +180,8 @@ int main(int argc, char **argv)
   else if(argv[1][0]=='d')
   {
     // decode (pseudo)
-#define READBUFLEN (261) /* even! 261 error 2610 ok */
-#define OUTBUFLEN (254) /* size ? */
+#define READBUFLEN (HARKALY1) /* even! 261 error 2610 ok */
+#define OUTBUFLEN (HARKALY2) /* size ? */
     uint8_t outbuf[OUTBUFLEN];
     uint8_t readbuf[READBUFLEN];
     uint32_t readbuf_len=0;
@@ -217,14 +211,11 @@ int main(int argc, char **argv)
     while( 1 )
     {
       size = qla_decode_frame(&q, outbuf, sizeof(outbuf), (feof(fp) ? QLA_FLUSH : &new_chunk) );
-      fprintf(stderr," DECODE %d [%d]\n",size, new_chunk);
       if(new_chunk)
       {
         new_chunk=0;
         readbuf_len=fread(readbuf, 1, MIN(sizeof(readbuf),insize), fp);
-        fprintf(stderr," READST %d bytes\n",readbuf_len);
         insize-=readbuf_len;
-        fprintf(stderr," READ NEW CHUNK %d bytes\n",readbuf_len);
         qla_new_chunk(&q, readbuf, readbuf_len);
         if(readbuf_len==0)
         {
@@ -244,7 +235,6 @@ int main(int argc, char **argv)
       if(size == QLA_NEWFRAME)
       {
 //        framebuffer_pos=0;
-        DBG_POS_PRINT(frameno);
         if(frameno!=0)
         {
           FILE *fo=wppm_newframe("out",frameno);
@@ -270,10 +260,6 @@ int main(int argc, char **argv)
         //time2_ms = time_now();
         //if( (time2_ms-time1_ms) < q.delay ) sleep( q.delay-(time2_ms-time1_ms) );
         //time1_ms = time2_ms;
-        if(q.delay!=33)
-        {
-          fprintf(stderr,"ERRORFRAME %d (delay=%d)\n",frameno,q.delay);
-        }
         fprintf(stderr,"FRANE NO #%d\n",frameno);
       }
       else if(size == QLA_NEWRECT)
@@ -286,8 +272,7 @@ int main(int argc, char **argv)
       else if(size>0)
       {
         unsigned long crc=crc32(0L, outbuf, size);
-        fprintf(stderr," SEND SPI %d bytes [%08lx] %02x %02x %02x %02x %02x %02x\n", size, crc, outbuf[0], outbuf[1], outbuf[2], outbuf[3], outbuf[4], outbuf[5]);
-        fprintf(stderr," RECT xx=%d yy=%d x=%d y=%d w=%d h=%d\n",xx,yy,q.rect.x,q.rect.y,q.rect.w,q.rect.h);
+        fprintf(stderr," SEND SPI %d bytes [%08lx]\n", size, crc);
         for(int i=0;i<size/QLI_BPP;i++)
         {
           for(int j=0;j<QLI_BPP;j++)
@@ -316,6 +301,7 @@ int main(int argc, char **argv)
     free(fb888);
   }
   else { fprintf(stderr,"Unknown command '%c'\n",argv[1][0]); exit(1); }
+  for(int i=0;DBG_BUFFER[i]>=0;i++) if(DBG_BUFFER[i]>0) fprintf(stderr,"QDS %d: %d\n",i,DBG_BUFFER[i]);
 
   return(0);
 }

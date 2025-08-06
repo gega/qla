@@ -35,6 +35,8 @@
 #ifndef QLI_H
 #define QLI_H
 
+char DBG_BUFFER[8192];
+
 
 #include <stdint.h>
 #include <string.h>
@@ -248,16 +250,13 @@ void QLI_FUNC_NAME(qli_rewind, QLI_POSTFIX) (struct qli_image *qli)
 int QLI_FUNC_NAME(qli_init, QLI_POSTFIX) (struct qli_image *qli, uint16_t width, uint16_t height, uint16_t stride, uint8_t *data, int32_t data_size)
 {
   if(NULL==qli) return(-1);
-  fprintf(stderr,"==> DATA");
-  int eddig=(data_size>20?20:data_size);
-  for(int i=0;i<eddig;i++) fprintf(stderr," %02x",data[i]);
-  fprintf(stderr,"\n");
   qli->width = width;
   qli->height = height;
   qli->stride = stride;
   qli->data = data;
   qli->size = data_size;
   QLI_FUNC_NAME(qli_rewind,QLI_POSTFIX) (qli);
+  if(data_size<sizeof(DBG_BUFFER)) { DBG_BUFFER[sizeof(DBG_BUFFER)-1]=-1; DBG_BUFFER[data_size]++; }
   return(0);
 }
 
@@ -294,11 +293,7 @@ struct cursor
   uint8_t *data;
 };
 
-int DBG_POS[2000];
-int DBG_POS_SIZE=sizeof(DBG_POS);
 
-//#define QLI_GETNEXTBYTE(qli) ( ((qli)->pos>=0) ? ((qli)->data[(qli)->pos++]) : ((qli)->rem[QLI_REMBUFSIZ+((qli)->pos++)]) )
-//#define QLI_GETNEXTBYTE(qli) ( (crsr[mode].pos>=0) ? (crsr[mode].data[crsr[mode].pos++]) : ((qli)->rem[QLI_REMBUFSIZ+(crsr[mode].pos++)]) )
 #define QLI_GETNEXTBYTE(qli) (crsr[mode].data[crsr[mode].pos++])
 
 
@@ -308,8 +303,6 @@ void QLI_FUNC_NAME(qli_new_chunk, QLI_POSTFIX) (struct qli_image *qli, uint8_t *
   qli->data=data;
   qli->size=data_size;
   qli->pos=0;
-  DBG_POS[__LINE__]++;
-  fprintf(stderr,"--> qli_new_chunk size=%d\n",data_size);
 }
 
 /*
@@ -370,52 +363,37 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
   if(!qli || !dest ) return(-1);
   if(qli->pixels_left == 0) return(0);
   if(qli->pixels_left < pixel_cnt) pixel_cnt=qli->pixels_left;
-  fprintf(stderr,"%s: %d %s(): ENTRY POINT pixel_cnt=%d\n",__FILE__,__LINE__,__FUNCTION__,pixel_cnt);
   if(QLI_FLUSH == new_chunk)
   {
-    fprintf(stderr,"%s: %d %s(): QLI_FLUSH\n",__FILE__,__LINE__,__FUNCTION__);
     flush=1;
     new_chunk=&flush;
   }
 
-/*
-  if(qli->remcnt<=0 && qli->size<QLI_MAX_TOKEN_LEN && !flush)
-  {
-    
-    fprintf(stderr,"==> TOO SMALL SIZE (%d), NEWCHUNK!\n",qli->size);
-    *new_chunk=1;
-    return(0);
-  }
-  else if(qli->size<QLI_MAX_TOKEN_LEN)
-  {
-    fprintf(stderr,"==> TOO SMALL SIZE (%d), !!NO!! NEWCHUNK! remcnt=%d flush=%d\n",qli->size,qli->remcnt,flush);
-  }
-*/
   if(qli->remcnt>0)
   {
-    fprintf(stderr,"%s: %d %s(): leftover true\n",__FILE__,__LINE__,__FUNCTION__);
     // HP leftover present, extend leftover to make sure we can process at least one token
     for(i=0;i<MIN((QLI_MAX_TOKEN_LEN-1),qli->size);i++) qli->rem[qli->remcnt++]=qli->data[i];
     crsr[0].size=qli->remcnt-(QLI_MAX_TOKEN_LEN-1);
     crsr[0].pos=0;
     crsr[0].data=qli->rem;
-    fprintf(stderr,"%s: %d %s(): leftover extended with %d bytes from main data real size=%d reported size=%d\n",__FILE__,__LINE__,__FUNCTION__,i,qli->remcnt,crsr[0].size);
-    fprintf(stderr,"%s: %d %s(): leftover in crsr[0]: size=%d pos=%d\n",__FILE__,__LINE__,__FUNCTION__,crsr[0].size,crsr[0].pos);
     if(crsr[0].size<=0 && !flush)
     {
-      fprintf(stderr,"%s: %d %s(): leftover + main data is too small, no flush, request new chunk, SHORTCUT\n",__FILE__,__LINE__,__FUNCTION__);
       // leftover is not large enough to guarantee at least one token processing
       // and main data is not enough to fill the gap --> request new chunk
-      qli->pos=qli->size+1;
-      *new_chunk=1;
-      return(0);
+      // this case should not happen only at the end of file when the FLUSH is not
+      // set but it should be set. this case issue a warning and indirectly set 
+      // the flush
+      fprintf(stderr,"WARNING: leftover + main data is too small and FLUSH is not set! Assuming FLUSH and continue...\n");
+      flush=1;
+      //qli->pos=qli->size+1;
+      //*new_chunk=1;
+      //return(0);
     }
     // else: this should be possible at the end of the stream, 
     //       let's process the leftover and hope that it is valid
   }
   else
   {
-    fprintf(stderr,"%s: %d %s(): leftover false, skip\n",__FILE__,__LINE__,__FUNCTION__);
     // no leftover, skip it
     // first call, or rare case when longest token appears at
     // [size-QLI_MAX_TOKEN_LEN] position
@@ -426,31 +404,28 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
   crsr[1].size=qli->size;
   crsr[1].pos=qli->pos;
   crsr[1].data=qli->data;
-  fprintf(stderr,"%s: %d %s(): main data setup size=%d pos=%d\n",__FILE__,__LINE__,__FUNCTION__,crsr[1].size,crsr[1].pos);
   if(crsr[1].size>(QLI_MAX_TOKEN_LEN-1))
   {
     // HP we have enough data in main data, reduce it to make sure we can process
     // a valid token near to the end of the buffer, that remainder data will
     // end up in the leftover buffer for the next call
     if(!flush) crsr[1].size-=QLI_MAX_TOKEN_LEN-1;
-  fprintf(stderr,"%s: %d %s(): main data reduced to size=%d\n",__FILE__,__LINE__,__FUNCTION__,crsr[1].size);
   }
   else
   {
-  fprintf(stderr,"%s: %d %s(): main data too short!\n",__FILE__,__LINE__,__FUNCTION__);
     // main data is too short to reduce it for safe processing
     if(crsr[0].size>0)
     {
-  fprintf(stderr,"%s: %d %s(): main data too short, leftover true, fake readover\n",__FILE__,__LINE__,__FUNCTION__);
       // will be leftover processing
       // skip main data processing altogether, that will be the leftover for the next
       // call, ensure it with faking the readover calculation to give us the proper 
       // length
+      fprintf(stderr,"WARNING: main data is too small, leftover is presemt! Assuming FLUSH and continue...\n");
       crsr[1].pos=crsr[1].size; // this will give a zero readover for label Leftover:
+      flush=1;
     }
     else
     {
-  fprintf(stderr,"%s: %d %s(): main data too short, leftover false, shortcut if no flush\n",__FILE__,__LINE__,__FUNCTION__);
       // no leftover processing
       if(!flush)
       {
@@ -460,7 +435,6 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
         qli->remcnt=qli->size;
         qli->pos=qli->size+1;
         *new_chunk=1;
-  fprintf(stderr,"%s: %d %s(): main data too short, leftover false, shortcut!\n",__FILE__,__LINE__,__FUNCTION__);
         return(0);
       }
     }
@@ -471,7 +445,6 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
   for(readover=mode=0;mode<=1;mode++)
   {
     CR.pos+=readover;
-    fprintf(stderr,"%s: %d %s(): inner loop next mode=%d pos=%d size=%d pixel_cnt=%d run=%d\n",__FILE__,__LINE__,__FUNCTION__,mode,CR.pos,CR.size,pixel_cnt,qli->run);
     while( pixel_cnt>0 && (qli->run>0 || CR.pos<CR.size) )
     {
       if(qli->run>0)
@@ -489,31 +462,22 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
       }
 
       d1 = QLI_GETNEXTBYTE(qli);
-      DBG_POS[__LINE__]++;
       uint8_t cm = d1 & QLI_CMD_MASK;
 
       if (QLI_OP_RGB == d1)
       {
-        fprintf(stderr,"OP RGB pos=%d read=%d size=%d\n",CR.pos,QLI_BPP,CR.size);
-        fprintf(stderr,"== RGB... ");
         for(i=0;i<QLI_BPP;i++)
         {
           qli->px[i] = QLI_GETNEXTBYTE(qli);
-          fprintf(stderr," 0x%02x",qli->px[i]);
-          DBG_POS[__LINE__]++; 
         }
         QLI_UPDATE_INDEX(qli, qli->px);
         qli->run=1;
-        fprintf(stderr,"%3d    -\n==> pos=%5d size=%5d remcnt=%2d\n",qli->run,CR.pos,CR.size,qli->remcnt);
       }
       else if(QLI_OP_INDEX == cm)
       {
         d1&=(1L<<QLI_INDEX_SIZE)-1;
-        fprintf(stderr,"== INDEX. ");
         for(i=0;i<QLI_BPP;i++) qli->px[i] = qli->index[i][d1];
-        for(i=0;i<QLI_BPP;i++) fprintf(stderr," 0x%02x",qli->px[i]);
         qli->run=1;
-        fprintf(stderr,"%3d    -\n==> pos=%5d size=%5d remcnt=%2d\n",qli->run,CR.pos,CR.size,qli->remcnt);
       }
       else if(QLI_OP_DIFF == cm)
       {
@@ -524,12 +488,9 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
         g += QLI_G_FACTOR * (((d1 >> 2) & 0x03) - 2);
         b += QLI_B_FACTOR * (( d1       & 0x03) - 2);
         qli_pixel_t rgb = QLI_RGB_PACK(r,g,b);
-        fprintf(stderr,"== DIFF.. ");
         for(int i=0;i<QLI_BPP;i++) qli->px[i] = (rgb>>(8*(QLI_BPP-i-1)))&0xff;
-        for(i=0;i<QLI_BPP;i++) fprintf(stderr," 0x%02x",qli->px[i]);
         QLI_UPDATE_INDEX(qli, qli->px);
         qli->run=1;
-        fprintf(stderr,"%3d    -\n==> pos=%5d size=%5d remcnt=%2d\n",qli->run,CR.pos,CR.size,qli->remcnt);
       }
       else if(QLI_OP_LUMA == cm)
       {
@@ -537,7 +498,6 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
         int g = QLI_PX_GET_GREEN(qli->px);
         int b = QLI_PX_GET_BLUE(qli->px);
         int d2 = QLI_GETNEXTBYTE(qli);
-        DBG_POS[__LINE__]++;
         int vg = (d1 & 0x3f) - 32;
         r += QLI_R_FACTOR * (vg - 8 + ((d2 >> 4) & 0x0f));
         g += QLI_G_FACTOR * (vg);
@@ -546,16 +506,10 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
         for(int i=0;i<QLI_BPP;i++) qli->px[i] = (rgb>>(8*(QLI_BPP-i-1)))&0xff;
         QLI_UPDATE_INDEX(qli, qli->px);
         qli->run=1;
-        fprintf(stderr,"== LUMA.. ");
-        for(i=0;i<QLI_BPP;i++) fprintf(stderr," 0x%02x",qli->px[i]);
-        fprintf(stderr,"%3d    -\n==> pos=%5d size=%5d remcnt=%2d\n",qli->run,CR.pos,CR.size,qli->remcnt);
       }
       else if(QLI_OP_RUN == cm)
       {
         qli->run=1+(d1&0x3f);
-        fprintf(stderr,"== RUN... ");
-        for(i=0;i<QLI_BPP;i++) fprintf(stderr," 0x%02x",qli->px[i]);
-        fprintf(stderr,"%3d    -\n==> pos=%5d size=%5d remcnt=%2d\n",qli->run,CR.pos,CR.size,qli->remcnt);
       }
     }
     // calculate readover
@@ -563,14 +517,12 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
     // for main data readover, this will reduces the amount of data goes to 
     // leftover for future calls
     readover=( CR.pos<=CR.size ? 0 : (CR.pos-CR.size));
-  fprintf(stderr,"%s: %d %s(): inner loop mode=%d readover=%d ret=%d pixel_cnt=%d\n",__FILE__,__LINE__,__FUNCTION__,mode,readover,ret,pixel_cnt);
   }
 #undef CR // inner loop END ----------------------------------------------------------------------------
   qli->pixels_left-=ret;
   if(crsr[0].size>0)
   {
     // if leftover was processed but not consumed fully, preserve the remaining part for further reading
-    if(crsr[0].size-crsr[0].pos>0) fprintf(stderr,"%s: %d %s(): leftover has remainder: total leftover %d, remaining: %d\n",__FILE__,__LINE__,__FUNCTION__,crsr[0].size,crsr[0].size-crsr[0].pos);
     if(crsr[0].size-crsr[0].pos>0) memmove(&qli->rem[0],&qli->rem[crsr[0].pos],crsr[0].size-crsr[0].pos);
     qli->remcnt=(crsr[0].size-crsr[0].pos<0 ? 0 : crsr[0].size-crsr[0].pos);
   }
@@ -579,17 +531,14 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (struct qli_image *qli, uint8_t *dest
 Leftover:
     // HP no flush
     if(crsr[1].pos>=crsr[1].size && qli->pixels_left>0) *new_chunk=1;
-    fprintf(stderr,"%s: %d %s(): pos=%d size=%d pixels_left=%d new_chunk=%d\n",__FILE__,__LINE__,__FUNCTION__,crsr[1].pos,crsr[1].size,qli->pixels_left,*new_chunk);
     qli->pos=crsr[1].pos;
     if(*new_chunk)
     {
-      fprintf(stderr,"%s: %d %s(): new chunk calculate leftover: from:%d size=%d ( <-- size=%d - pos=%d )\n",__FILE__,__LINE__,__FUNCTION__,qli->pos,qli->size-qli->pos,qli->size,qli->pos);
       qli->remcnt=qli->size-qli->pos;
       if(qli->remcnt>0) memcpy(qli->rem, &qli->data[qli->pos], qli->remcnt);
     }
   }
   
-  fprintf(stderr,"%s: %d %s(): return ret=%d\n",__FILE__,__LINE__,__FUNCTION__,ret);
   return(ret);
 
   // never reached, prevent warning
