@@ -275,6 +275,88 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
 #define QLA_RGB32_GREEN(p32) (uint8_t)((((uint32_t)p32)>>16)&0xff)
 #define QLA_RGB32_BLUE(p32)  (uint8_t)((((uint32_t)p32)>>8)&0xff)
 
+#define QLA_INTERSECT(a,b) !(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y)
+#define QLA_MAX_DIRTIES(c) (4*(c)+1)
+#define QLA_MIN_DIRTY_AREA (32)
+#define QLA_MAX_CLEAN_RECTS (8)
+
+
+static int subtract_rect(struct qla_rect a, struct qla_rect b, struct qla_rect out[4])
+{
+  int valid;
+  int count=0;
+  int i;
+
+  if(!QLA_INTERSECT(a,b))
+  {
+    out[0]=a;
+    return(1);
+  }
+
+  int ay2 = a.y + a.h;
+  int by2 = b.y + b.h;
+
+  // top
+  if(b.y > a.y) out[count++] = (struct qla_rect){ a.x, a.y, a.w, b.y - a.y };
+  // bottom
+  if(by2 < ay2) out[count++] = (struct qla_rect){ a.x, by2, a.w, ay2 - by2 };
+  // left
+  if(b.x > a.x)
+  {
+    int top = (b.y < a.y) ? a.y : b.y;
+    int bottom = (by2 > ay2) ? ay2 : by2;
+    out[count++] = (struct qla_rect){ a.x, top, b.x-a.x, bottom-top };
+  }
+  // right
+  if((b.x+b.w) < (a.x+a.w))
+  {
+    int top = (b.y < a.y) ? a.y : b.y;
+    int bottom = (by2 > ay2) ? ay2 : by2;
+    out[count++] = (struct qla_rect){ (b.x+b.w), top, (a.x+a.w) - (b.x+b.w), bottom-top };
+  }
+
+  for(valid=i=0; i<count; i++) if(out[i].w>0 && out[i].h>0) out[valid++]=out[i];
+
+  return(valid);
+}
+
+static int get_dirty_rects(int width, int height, struct qla_rect clean[], int clean_cnt, struct qla_rect dirty[], int dirty_cnt, int *min_area)
+{
+  struct qla_rect working[64];
+  struct qla_rect temp[64];
+  struct qla_rect parts[4];
+  struct qla_rect cln;
+  int work_count=0;
+  int temp_count=0;
+  int out_count;
+  int minarea=999999;
+  int i,p,c,n;
+
+  working[work_count++] = (struct qla_rect){0,0,width,height};
+
+  for(c=0; c<clean_cnt; c++)
+  {
+    cln = clean[c];
+
+    for(temp_count=i=0; i<work_count; i++)
+    {
+      n=subtract_rect(working[i], cln, parts);
+      for(p=0; p<n; p++) temp[temp_count++] = parts[p];
+    }
+    work_count=temp_count;
+    for(i=0; i<temp_count; i++) working[i] = temp[i];
+  }
+
+  out_count = (work_count<dirty_cnt) ? work_count : dirty_cnt;
+  for(i=0; i<out_count; i++)
+  {
+    dirty[i]=working[i];
+    if(minarea > (dirty[i].w * dirty[i].h)) minarea=dirty[i].w * dirty[i].h;
+  }
+  if(NULL!=min_area) *min_area=minarea;
+
+  return(work_count);
+}
 
 int qla_init_encode(struct qla_encode *qle, uint16_t width, uint16_t height, qla_buffer_release_cb_t buf_rel)
 {
@@ -434,53 +516,42 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
     if(0>(qla_xor(qle->xor_buffer, qle->width, qle->height, qle->curr_frame, rgb))) return(-1);
     // 2. get the list of largest rectangles
     // 3. loop through rectangles
-    for(val=1,area=1; area>0 && (bufsize-pos)>hdr; val++)
+    struct qla_rect *dirty=NULL;
+    struct qla_rect *new_dirty=NULL;
+    struct qla_rect *old_dirty=NULL;
+    struct qla_rect clean[QLA_MAX_CLEAN_RECTS];
+    int clean_cnt;
+    int min_area;
+    for(clean_cnt=1,val=1,area=1; area>0 && (bufsize-pos)>hdr && clean_cnt<QLA_MAX_CLEAN_RECTS; val++,clean_cnt++)
     {
       area=qla_largest_rect(qle->xor_buffer, qle->width, qle->height, &rct);
       qla_bytemap_fillrect(qle->xor_buffer, qle->width, qle->height, val, rct.x, rct.y, rct.w, rct.h);
-
-      // block for XOR indicates UNCHAGED area
-      // create 4 dirty rects
-      struct qla_rect dirty[4];
-      // 1. above
-      dirty[0].x=0;
-      dirty[0].y=0;
-      dirty[0].w=qle->width;
-      dirty[0].h=rct.y;
-      if(dirty[0].w<=0 || dirty[0].h<=0) dirty[0].x=-1;
-      // 2. below
-      dirty[1].x=0;
-      dirty[1].y=rct.y + rct.h;
-      dirty[1].w=qle->width;
-      dirty[1].h=qle->height - rct.h - rct.y;
-      if(dirty[1].w<=0 || dirty[1].h<=0) dirty[1].x=-1;
-      // 3. left
-      dirty[2].x=0;
-      dirty[2].y=rct.y;
-      dirty[2].w=rct.x - 1;
-      dirty[2].h=rct.h;
-      if(dirty[2].w<=0 || dirty[2].h<=0) dirty[2].x=-1;
-      // 4. right
-      dirty[3].x=rct.x + rct.w;
-      dirty[3].y=rct.y;
-      dirty[3].w=qle->width - rct.w - rct.x - 1;
-      dirty[3].h=rct.h;
-      if(dirty[3].w<=0 || dirty[3].h<=0) dirty[3].x=-1;
-      for(i=0; i<4; i++)
-      {
-        if(dirty[i].x<0) continue;
-        if(extended) buf[pos++]	= (dirty[i].x >>8) &0xff;
-        buf[pos++] 		=  dirty[i].x      &0xff;
-        if(extended) buf[pos++]	= (dirty[i].y >>8) &0xff;
-        buf[pos++] 		=  dirty[i].y      &0xff;
-        if(extended) buf[pos++] = (dirty[i].w >>8) &0xff;
-        buf[pos++] 		=  dirty[i].w      &0xff;
-        if(extended) buf[pos++] = (dirty[i].h >>8) &0xff;
-        buf[pos++] 		=  dirty[i].h      &0xff;
-        pos+=qli_encode(&rgb[qle->width*dirty[i].y + dirty[i].x], dirty[i].w, dirty[i].h, qle->width*sizeof(uint32_t), &buf[pos], bufsize-pos);
-      }
-      break;
+      clean[clean_cnt]=rct;
+      if(old_dirty) free(old_dirty);
+      old_dirty=new_dirty;
+      new_dirty=calloc(QLA_MAX_DIRTIES(clean_cnt)+1, sizeof(struct qla_rect));
+      int nd=get_dirty_rects(qle->width, qle->height, clean, clean_cnt, new_dirty, QLA_MAX_DIRTIES(clean_cnt), &min_area);
+      fprintf(stderr,"QLA clean_cnt=%d ndrty=%d min_area=%d clean area=%d\n",clean_cnt,nd,min_area,rct.w*rct.h);
+      if(min_area<QLA_MIN_DIRTY_AREA) break;
     }
+    if(old_dirty) dirty=old_dirty;
+    else dirty=new_dirty;
+    fprintf(stderr,"QLA clean_cnt=%d min_area=%d\n",clean_cnt,min_area);
+    for(i=0;(dirty[i].w+dirty[i].h)!=0;i++)
+    {
+      fprintf(stderr,"QLA dirty[%d] %3d,%3d  %3dx%3d\n",i,dirty[i].x,dirty[i].y,dirty[i].w,dirty[i].h);
+      if(extended) buf[pos++]   = (dirty[i].x >>8) &0xff;
+      buf[pos++]                =  dirty[i].x      &0xff;
+      if(extended) buf[pos++]   = (dirty[i].y >>8) &0xff;
+      buf[pos++]                =  dirty[i].y      &0xff;
+      if(extended) buf[pos++]   = (dirty[i].w >>8) &0xff;
+      buf[pos++]                =  dirty[i].w      &0xff;
+      if(extended) buf[pos++]   = (dirty[i].h >>8) &0xff;
+      buf[pos++]                =  dirty[i].h      &0xff;
+      pos+=qli_encode(&rgb[qle->width*dirty[i].y + dirty[i].x], dirty[i].w, dirty[i].h, qle->width*sizeof(uint32_t), &buf[pos], bufsize-pos);
+    }
+    if(old_dirty) free(old_dirty);
+    if(new_dirty) free(new_dirty);
     if(bufsize-pos<hdr) return(-1);
     // close dirty rect section
     for(i=0; i<hdr; i++) buf[pos++]=0;
