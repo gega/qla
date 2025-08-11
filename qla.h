@@ -281,7 +281,7 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
 #define QLA_MAX_CLEAN_RECTS (8)
 
 
-static int subtract_rect(struct qla_rect a, struct qla_rect b, struct qla_rect out[4])
+static int qla_subtract_rect(struct qla_rect a, struct qla_rect b, struct qla_rect out[4])
 {
   int valid;
   int count=0;
@@ -320,7 +320,7 @@ static int subtract_rect(struct qla_rect a, struct qla_rect b, struct qla_rect o
   return(valid);
 }
 
-static int get_dirty_rects(int width, int height, struct qla_rect clean[], int clean_cnt, struct qla_rect dirty[], int dirty_cnt, int *min_area)
+static int qla_get_dirty_rects(int width, int height, struct qla_rect clean[], int clean_cnt, struct qla_rect dirty[], int dirty_cnt, int *min_area)
 {
   struct qla_rect working[64];
   struct qla_rect temp[64];
@@ -340,7 +340,7 @@ static int get_dirty_rects(int width, int height, struct qla_rect clean[], int c
 
     for(temp_count=i=0; i<work_count; i++)
     {
-      n=subtract_rect(working[i], cln, parts);
+      n=qla_subtract_rect(working[i], cln, parts);
       for(p=0; p<n; p++) temp[temp_count++] = parts[p];
     }
     work_count=temp_count;
@@ -530,7 +530,7 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
       if(old_dirty) free(old_dirty);
       old_dirty=new_dirty;
       new_dirty=calloc(QLA_MAX_DIRTIES(clean_cnt)+1, sizeof(struct qla_rect));
-      int nd=get_dirty_rects(qle->width, qle->height, clean, clean_cnt, new_dirty, QLA_MAX_DIRTIES(clean_cnt), &min_area);
+      int nd=qla_get_dirty_rects(qle->width, qle->height, clean, clean_cnt, new_dirty, QLA_MAX_DIRTIES(clean_cnt), &min_area);
       fprintf(stderr,"QLA clean_cnt=%d ndrty=%d min_area=%d clean area=%d\n",clean_cnt,nd,min_area,rct.w*rct.h);
       if(min_area<QLA_MIN_DIRTY_AREA) break;
     }
