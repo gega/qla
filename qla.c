@@ -181,7 +181,7 @@ int main(int argc, char **argv)
   {
     // decode (pseudo)
 #define READBUFLEN (HARKALY1) /* even! 261 error 2610 ok */
-#define OUTBUFLEN (HARKALY2) /* size ? */
+#define OUTBUFLEN (HARKALY2) /* size 254 ? */
     uint8_t outbuf[OUTBUFLEN];
     uint8_t readbuf[READBUFLEN];
     uint32_t readbuf_len=0;
@@ -197,7 +197,9 @@ int main(int argc, char **argv)
     int insize=ftell(fp)-QLA_HEADER_LEN;
     fseek(fp, 0, SEEK_SET);
     fread(header,1,QLA_HEADER_LEN,fp);
+    fprintf(stderr,"header crc=0x%08lx\n",crc32(0L, header, QLA_HEADER_LEN));
     int st=qla_init_header(&q, header, sizeof(header), NULL, 0);
+    fprintf(stderr," HDR %dx%d e%d f=0x%x %d delay=%dms pos=%d size=%d\n",q.width,q.height,q.extended,q.flags,q.metai,q.delay,q.pos,q.data_size);
     if(st!=0) 
     {
       fprintf(stderr,"ERROR init header\n");
@@ -210,13 +212,16 @@ int main(int argc, char **argv)
 //    time1_ms = time_now();
     while( 1 )
     {
+        static unsigned long cnt;
       size = qla_decode_frame(&q, outbuf, sizeof(outbuf), (feof(fp) ? QLA_FLUSH : &new_chunk) );
+      fprintf(stderr,":::qla_decode_frame::: %d [SPI=%7ld]\n",size,cnt);
       if(new_chunk)
       {
         new_chunk=0;
         readbuf_len=fread(readbuf, 1, MIN(sizeof(readbuf),insize), fp);
         insize-=readbuf_len;
         qla_new_chunk(&q, readbuf, readbuf_len);
+        fprintf(stderr," NEW CHUNK insize=%d readbuf_len=%d crc=0x%08lx\n",insize,readbuf_len,crc32(0L, readbuf, readbuf_len));
         if(readbuf_len==0)
         {
           // loop!
@@ -272,7 +277,7 @@ int main(int argc, char **argv)
       else if(size>0)
       {
         unsigned long crc=crc32(0L, outbuf, size);
-        fprintf(stderr," SEND SPI %d bytes [%08lx]\n", size, crc);
+        fprintf(stderr," SEND %6ld SPI %d bytes [%08lx]\n", ++cnt, size, crc);
         for(int i=0;i<size/QLI_BPP;i++)
         {
           for(int j=0;j<QLI_BPP;j++)

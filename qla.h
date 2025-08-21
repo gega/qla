@@ -31,7 +31,7 @@
 #ifndef QLA_H
 #define QLA_H
 
-#define HARKALY1 111
+#define HARKALY1 512
 #define HARKALY2 254
 
 
@@ -249,13 +249,11 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
     ||	hdr[1]!=QLA_MAGIC1
     ||	hdr[2]!=QLA_MAGIC2
     ||	hdr[3]!=QLA_MAGIC3 ) return(-1);
-  qla->width =hdr[4]<<8 | hdr[5];
-  qla->height=hdr[6]<<8 | hdr[7];
+  int width =hdr[4]<<8 | hdr[5];
+  int height=hdr[6]<<8 | hdr[7];
   if(hdr[8]!=QLI_PIXEL_FORMAT) return(-1);
   if(hdr[9]!=qli_index_code[QLI_INDEX_SIZE]) return(-1);
-  qla->data=data;
-  qla->data_size=data_size;
-  qla_init_decode(qla, qla->width, qla->height, data, data_size);
+  qla_init_decode(qla, width, height, data, data_size);
   return(0);
 }
 
