@@ -31,11 +31,9 @@
 #ifndef QLA_H
 #define QLA_H
 
-#define HARKALY1 512
-#define HARKALY2 254
-
 
 #include <stdint.h>
+
 
 #define QLA_MAGIC0 ('q')
 #define QLA_MAGIC1 ('l')
@@ -50,6 +48,7 @@
 #define QLA_DECODE
 #endif
 #endif
+
 
 struct qla_rect
 {
@@ -148,23 +147,9 @@ void qla_new_chunk(struct qla_anim *qla, uint8_t *data, uint32_t data_size)
   qli_new_chunk(&qla->qli, data, data_size);
 }
 
-/*
- * decodes some part of the current rectangle. Puts the bytes to dest buffer no more than bufsize bytes.
- * it decodes pixels so the length will be on pixel boundary. (if a pixel is two bytes, it will decode 
- * even bytes) It will return the decoded bytes written in dest. This could be less than the available
- * space even if aligned with pixel witdh. When a rectangle is fully decoded, decoder stops and returns
- * to caller to let them push the rectangle to screen and the next call will start the next rectangle.
- * the current data of the rectangle (coordinates and dimensions) can be found in the struct qla_anim.
- * when the frame is fully decoded, the next call will return zero. At this time the delay field is valid
- * in the struct qla_anim struct. The caller should measure the time elapsed from the beginning of the 
- * frame and wait (delay - elapsed) milliseconds before calling this API again to go to the next frame.
- * In this case the frame_no field contains the number of the _next_ frame. If this is zero that 
- * indicates a loop, so the caller should rewind the file pointers or reset its memory pointers back to
- * the first frame.
- * 
+/* new_chunk should be zeroed after providing the new data and use
+ * qla_new_chunk() to inject the newly available data
  */
- // buffer handling: use limited ram buffer
- // worst case "compression" size for X output pixels: 2 byte delay + 4 byte rect (8 if ext) + size * 1.33
 int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_chunk)
 {
   int pixel_count=0;
@@ -254,6 +239,7 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
   if(hdr[8]!=QLI_PIXEL_FORMAT) return(-1);
   if(hdr[9]!=qli_index_code[QLI_INDEX_SIZE]) return(-1);
   qla_init_decode(qla, width, height, data, data_size);
+
   return(0);
 }
 
@@ -264,8 +250,6 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
-
-
 
 
 #define QLA_GET_24BIT_PIXEL(rgb,w,x,y) (uint32_t)((rgb)[(y)*(w)+(x)])
@@ -528,16 +512,13 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
       if(old_dirty) free(old_dirty);
       old_dirty=new_dirty;
       new_dirty=calloc(QLA_MAX_DIRTIES(clean_cnt)+1, sizeof(struct qla_rect));
-      int nd=qla_get_dirty_rects(qle->width, qle->height, clean, clean_cnt, new_dirty, QLA_MAX_DIRTIES(clean_cnt), &min_area);
-      fprintf(stderr,"QLA clean_cnt=%d ndrty=%d min_area=%d clean area=%d\n",clean_cnt,nd,min_area,rct.w*rct.h);
+      qla_get_dirty_rects(qle->width, qle->height, clean, clean_cnt, new_dirty, QLA_MAX_DIRTIES(clean_cnt), &min_area);
       if(min_area<QLA_MIN_DIRTY_AREA) break;
     }
     if(old_dirty) dirty=old_dirty;
     else dirty=new_dirty;
-    fprintf(stderr,"QLA clean_cnt=%d min_area=%d\n",clean_cnt,min_area);
     for(i=0;(dirty[i].w+dirty[i].h)!=0;i++)
     {
-      fprintf(stderr,"QLA dirty[%d] %3d,%3d  %3dx%3d\n",i,dirty[i].x,dirty[i].y,dirty[i].w,dirty[i].h);
       if(extended) buf[pos++]   = (dirty[i].x >>8) &0xff;
       buf[pos++]                =  dirty[i].x      &0xff;
       if(extended) buf[pos++]   = (dirty[i].y >>8) &0xff;

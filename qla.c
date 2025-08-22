@@ -1,10 +1,6 @@
-//gcc -fsanitize=address -fsanitize=leak -fno-omit-frame-pointer -Wall -g -o q q.c qla qla.c
 //gcc -O0 -g --coverage -fcondition-coverage -fsanitize=address -fsanitize=leak -fno-omit-frame-pointer -Wall -Wdangling-pointer -g -o qla qla.c
 #include <stdio.h>
 #include <stdlib.h>
-
-
-extern char DBG_BUFFER[];
 
 
 #define QLI_PIXEL_FORMAT 0
@@ -35,6 +31,7 @@ extern char DBG_BUFFER[];
 
 static struct rppm img[3]={0};
 static int imgp=3;
+
 
 void rel_cb(uint32_t *b)
 {
@@ -180,8 +177,8 @@ int main(int argc, char **argv)
   else if(argv[1][0]=='d')
   {
     // decode (pseudo)
-#define READBUFLEN (HARKALY1) /* even! 261 error 2610 ok */
-#define OUTBUFLEN (HARKALY2) /* size 254 ? */
+#define READBUFLEN (512) /* even! 261 error 2610 ok */
+#define OUTBUFLEN (254) /* size 254 ? */
     uint8_t outbuf[OUTBUFLEN];
     uint8_t readbuf[READBUFLEN];
     uint32_t readbuf_len=0;
@@ -197,7 +194,6 @@ int main(int argc, char **argv)
     int insize=ftell(fp)-QLA_HEADER_LEN;
     fseek(fp, 0, SEEK_SET);
     fread(header,1,QLA_HEADER_LEN,fp);
-    fprintf(stderr,"header crc=0x%08lx\n",crc32(0L, header, QLA_HEADER_LEN));
     int st=qla_init_header(&q, header, sizeof(header), NULL, 0);
     fprintf(stderr," HDR %dx%d e%d f=0x%x %d delay=%dms pos=%d size=%d\n",q.width,q.height,q.extended,q.flags,q.metai,q.delay,q.pos,q.data_size);
     if(st!=0) 
@@ -206,10 +202,8 @@ int main(int argc, char **argv)
       exit(0);
     }
     uint8_t *framebuffer=calloc(q.width*q.height,QLI_BPP);
- //   int framebuffer_pos=0;
     uint8_t *fb888=calloc(q.width*q.height,3);
     size_t first_frame=ftell(fp);
-//    time1_ms = time_now();
     while( 1 )
     {
         static unsigned long cnt;
@@ -239,7 +233,6 @@ int main(int argc, char **argv)
       }
       if(size == QLA_NEWFRAME)
       {
-//        framebuffer_pos=0;
         if(frameno!=0)
         {
           FILE *fo=wppm_newframe("out",frameno);
@@ -253,7 +246,6 @@ int main(int argc, char **argv)
           }
           fwrite(fb888,q.width*q.height,3,fo);
           wppm_close(fo);
-          //exit(0);
         }
         if(!loop) frameno++;
         else
@@ -298,8 +290,6 @@ int main(int argc, char **argv)
             yy++;
           }
         }
-        //memcpy(&framebuffer[framebuffer_pos], outbuf, size);
-        //framebuffer_pos+=size;
       }
     }
     free(framebuffer);
