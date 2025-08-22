@@ -62,11 +62,11 @@ struct qla_rect
 #define QLAF_NEWFRAME (1L<<3)
 #define QLAF_NEWRECT  (1L<<4)
 
-#define QLA_NEWFRAME (-1)
-#define QLA_NEWRECT  (-2)
-#define QLA_ERROR    (-99)
+#define QLA_ERROR    (1)
+#define QLA_NEWRECT  (2)
+#define QLA_NEWFRAME (4)
+#define QLA_NEWCHUNK (8)
 
-#define QLA_FLUSH (QLI_FLUSH)
 
 
 struct qla_anim
@@ -106,7 +106,8 @@ struct qla_encode
 #endif
 
 #ifdef QLA_DECODE
-int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_chunk);
+typedef int32_t qla_status_t;
+qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize);
 typedef size_t qla_read_t(void *fd, uint8_t *buf, size_t count);
 int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size);
 int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8_t *data, uint32_t data_size);
@@ -124,6 +125,11 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
 #ifdef QLA_IMPLEMENTATION
 
 #ifdef QLA_DECODE
+
+
+#define QLA_GET_STATUS(status) ((status)&0xff)
+#define QLA_GET_SIZE(status) ((status)>>8)
+
 
 int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size)
 {
@@ -150,19 +156,19 @@ void qla_new_chunk(struct qla_anim *qla, uint8_t *data, uint32_t data_size)
 /* new_chunk should be zeroed after providing the new data and use
  * qla_new_chunk() to inject the newly available data
  */
-int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_chunk)
+qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
 {
-  int pixel_count=0;
+  int32_t pixel_count=0;
+  int new_chunk=0;
   
-  if(!new_chunk) return(QLA_ERROR);
   if(QLAF_NEWRECT==(qla->flags&QLAF_NEWRECT))
   {
     while(qla->metai<(qla->extended?8:4))
     {
       int32_t p1=qla->qli.pos;
-      qla->metab[qla->metai]=qli_get_next_byte(&qla->qli,new_chunk);
+      qla->metab[qla->metai]=qli_get_next_byte(&qla->qli,&new_chunk);
       int32_t p2=qla->qli.pos;
-      if(*new_chunk) return(0);
+      if(new_chunk) return(QLA_NEWCHUNK);
       qla->pos+=p2-p1;
       qla->metai++;
     }
@@ -199,9 +205,9 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
     while(qla->metai<2)
     {
       int32_t p1=qla->qli.pos;
-      qla->metab[qla->metai]=qli_get_next_byte(&qla->qli,new_chunk);
+      qla->metab[qla->metai]=qli_get_next_byte(&qla->qli,&new_chunk);
       int32_t p2=qla->qli.pos;
-      if(*new_chunk) return(0);
+      if(new_chunk) return(QLA_NEWCHUNK);
       qla->pos+=p2-p1;
       qla->metai++;
     }
@@ -215,7 +221,7 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
   }
   // decode
   int32_t p1=qla->qli.pos;
-  pixel_count=qli_decode(&qla->qli, dest, bufsize/QLI_BPP, new_chunk);
+  pixel_count=qli_decode(&qla->qli, dest, bufsize/QLI_BPP, &new_chunk);
   int32_t p2=qla->qli.pos;
 
   // housekeeping
@@ -224,7 +230,7 @@ int qla_decode_frame(struct qla_anim *qla, uint8_t *dest, int bufsize, int *new_
   // check if rect finished
   if(qla->rect_pixels==0) qla->flags|=QLAF_NEWRECT;
 
-  return(pixel_count*QLI_BPP);
+  return(((pixel_count*QLI_BPP)<<8) | (new_chunk?QLA_NEWCHUNK:0));
 }
 
 int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8_t *data, uint32_t data_size)

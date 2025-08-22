@@ -176,7 +176,6 @@ int main(int argc, char **argv)
   }
   else if(argv[1][0]=='d')
   {
-    // decode (pseudo)
 #define READBUFLEN (512) /* even! 261 error 2610 ok */
 #define OUTBUFLEN (254) /* size 254 ? */
     uint8_t outbuf[OUTBUFLEN];
@@ -184,9 +183,7 @@ int main(int argc, char **argv)
     uint32_t readbuf_len=0;
     uint8_t header[QLA_HEADER_LEN];
     int xx,yy,rcol;
-    int size;
     int loop=0;
-    int new_chunk=0;
     int frameno=0;
     struct qla_anim q;
     FILE *fp = fopen(argv[2],"rb");
@@ -207,11 +204,12 @@ int main(int argc, char **argv)
     while( 1 )
     {
         static unsigned long cnt;
-      size = qla_decode_frame(&q, outbuf, sizeof(outbuf), (feof(fp) ? QLA_FLUSH : &new_chunk) );
-      fprintf(stderr,":::qla_decode_frame::: %d [SPI=%7ld]\n",size,cnt);
-      if(new_chunk)
+      int32_t status = qla_decode(&q, outbuf, sizeof(outbuf));
+      int size=QLA_GET_SIZE(status);
+      status=QLA_GET_STATUS(status);
+      fprintf(stderr,":::qla_decode_frame::: %d [SPI=%7ld]\n",status,cnt);
+      if((status&QLA_NEWCHUNK)!=0)
       {
-        new_chunk=0;
         readbuf_len=fread(readbuf, 1, MIN(sizeof(readbuf),insize), fp);
         insize-=readbuf_len;
         qla_new_chunk(&q, readbuf, readbuf_len);
@@ -231,7 +229,7 @@ int main(int argc, char **argv)
           loop=1;
         }
       }
-      if(size == QLA_NEWFRAME)
+      if((status&QLA_NEWFRAME)!=0)
       {
         if(frameno!=0)
         {
@@ -259,7 +257,7 @@ int main(int argc, char **argv)
         //time1_ms = time2_ms;
         fprintf(stderr,"FRANE NO #%d\n",frameno);
       }
-      else if(size == QLA_NEWRECT)
+      else if((status&QLA_NEWRECT)!=0)
       {
         fprintf(stderr," SET_WINDOW %d,%d %dx%d\n",q.rect.x, q.rect.y, q.rect.w, q.rect.h);
         xx=0;
