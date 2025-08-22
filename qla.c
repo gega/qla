@@ -1,4 +1,19 @@
 //gcc -O0 -g --coverage -fcondition-coverage -fsanitize=address -fsanitize=leak -fno-omit-frame-pointer -Wall -Wdangling-pointer -g -o qla qla.c
+/*
+ *  Sample application for demonstrating QLA animation format capabilities
+ *
+ *  CLI tool with encoding/decoding QLA animations
+ *
+ *  encode:
+ *
+ *   qla e delay filename-stem- output-dir
+ *   filename template: "filename-stem-%04d.ppm" , counter
+ *
+ *  decode:
+ *
+ *   qla d file.qla
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 
