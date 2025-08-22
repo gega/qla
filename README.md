@@ -5,6 +5,18 @@ is there while we are decoding the subsequent frame. This is the behavior of the
 
 ---
 
+## Features
+
+- **Streaming-friendly** - designed for continuous data processing without stalls
+- **Optimized for embedded MCUs** - specifically for ST7789 SPI family but works for generic cases too
+- **Assymetric design** - decoder for low specs embedded, encoder for generic PC
+- **Zero heap usage** - no `malloc`, no dynamic allocation, no surprises
+- **Minimal RAM footprint** – works in constrained environments
+- **Deterministic performance** – predictable execution, no hidden blocking
+- **Configurable buffer sizes** – adapt to your application’s needs
+- **Portable C implementation** – no platform-specific dependencies
+- **Robust error handling** – built-in status codes for reliability
+
 ## Decoder API
 
 ### `int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size);`
