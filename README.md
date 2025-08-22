@@ -92,3 +92,7 @@ Encode a single frame of animation.
 * Always check return values.
 * Decoder returns are designed for **streaming use**: you may get partial output per call.
 * Encoders require buffers large enough for encoded frames + headers.
+
+## Demo
+
+![demo](VID_20250821_110954219.gif)
