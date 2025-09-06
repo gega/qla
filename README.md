@@ -9,7 +9,7 @@ is there while we are decoding the subsequent frame. This is the behavior of the
 
 - **Streaming-friendly** - designed for continuous data processing without stalls
 - **Optimized for embedded MCUs** - specifically for ST7789 SPI family but works for generic cases too
-- **Assymetric design** - decoder for low specs embedded, encoder for generic PC
+- **Asymetric design** - decoder for low specs embedded, encoder for generic PC
 - **Zero heap usage** - no `malloc`, no dynamic allocation, no surprises
 - **Minimal RAM footprint** – works in constrained environments
 - **Deterministic performance** – predictable execution, no hidden blocking
