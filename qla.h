@@ -61,6 +61,7 @@ struct qla_rect
 
 #define QLAF_NEWFRAME (1L<<3)
 #define QLAF_NEWRECT  (1L<<4)
+#define QLAF_LOOP     (1L<<5)
 
 #define QLA_ERROR    (1)
 #define QLA_NEWRECT  (2)
@@ -80,7 +81,7 @@ struct qla_anim
   uint16_t delay;
   uint32_t pos;
   struct qla_rect rect;
-  uint32_t rect_pixels;
+  int32_t rect_bytes;
   struct qli_image qli;
   uint8_t *data;
   uint32_t data_size;
@@ -158,7 +159,7 @@ void qla_new_chunk(struct qla_anim *qla, uint8_t *data, uint32_t data_size)
  */
 qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
 {
-  int32_t pixel_count=0;
+  int32_t bytes_count=0;
   int new_chunk=0;
   
   if(QLAF_NEWRECT==(qla->flags&QLAF_NEWRECT))
@@ -188,11 +189,11 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
     }
     // clear flags
     qla->flags&=~QLAF_NEWRECT;
-    qla->rect_pixels=qla->rect.w * qla->rect.h;
+    qla->rect_bytes=QLI_PIXEL_TO_BYTE(qla->rect.w * qla->rect.h);
     qla->metai=0;
-    if( (qla->rect.x+qla->rect.y+qla->rect.w+qla->rect.h) != 0)
+    if( qla->rect_bytes != 0)
     {
-      qli_init(&qla->qli, qla->rect.w, qla->rect.h, qla->rect.w*QLI_BPP, &qla->data[qla->pos], qla->data_size - qla->pos);
+      qli_init(&qla->qli, qla->rect.w, qla->rect.h, &qla->data[qla->pos], qla->data_size - qla->pos, 0);
       return(QLA_NEWRECT);
     }
     else
@@ -220,17 +221,25 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
     return(QLA_NEWFRAME);
   }
   // decode
+
   int32_t p1=qla->qli.pos;
-  pixel_count=qli_decode(&qla->qli, dest, bufsize/QLI_BPP, &new_chunk);
+  bytes_count=qli_decode(&qla->qli, dest, bufsize, &new_chunk);
   int32_t p2=qla->qli.pos;
 
   // housekeeping
-  qla->rect_pixels-=pixel_count;
+  qla->rect_bytes-=bytes_count;
+  if(qla->rect_bytes<0) // FIXME: no need this cond
+  {
+    qla->pos+=qla->rect_bytes;
+    qla->qli.pos+=qla->rect_bytes;
+    qla->rect_bytes=0;
+  }
   qla->pos+=p2-p1;
-  // check if rect finished
-  if(qla->rect_pixels==0) qla->flags|=QLAF_NEWRECT;
 
-  return(((pixel_count*QLI_BPP)<<8) | (new_chunk?QLA_NEWCHUNK:0));
+  // check if rect finished
+  if(qla->rect_bytes==0) qla->flags|=QLAF_NEWRECT;
+
+  return((( bytes_count )<<8) | (new_chunk?QLA_NEWCHUNK:0));
 }
 
 int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8_t *data, uint32_t data_size)
@@ -507,7 +516,7 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
     struct qla_rect *dirty=NULL;
     struct qla_rect *new_dirty=NULL;
     struct qla_rect *old_dirty=NULL;
-    struct qla_rect clean[QLA_MAX_CLEAN_RECTS];
+    struct qla_rect clean[QLA_MAX_CLEAN_RECTS]={0};
     int clean_cnt;
     int min_area;
     for(clean_cnt=1,val=1,area=1; area>0 && (bufsize-pos)>hdr && clean_cnt<QLA_MAX_CLEAN_RECTS; val++,clean_cnt++)
