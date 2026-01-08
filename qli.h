@@ -646,7 +646,7 @@ int QLI_FUNC_NAME(qli_get_next_byte, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POS
         else if(QLI_OP_LUMA == cm) QLI_OP_PROC_LUMA(qli,d1,nc); \
    } while(0)
 
-int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *qli, uint8_t *dest, int32_t bytes_cnt, int *new_chunk, int *emitted)
+int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *qli, uint8_t *dest, int32_t bytes_cnt, int *new_chunk, int32_t *emitted)
 {
   uint8_t d1;
   uint8_t ln;
