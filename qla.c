@@ -47,18 +47,18 @@
 #include <stdlib.h>
 
 
-#define QLA_DEBUG 1
+#define QLA_DEBUG 0
 #define QLI_STRIDE 0
 #define QLI_ENDIAN QLI_BIG_ENDIAN
 #define QLI_PIXEL_FORMAT QLI_PF_RGB444
+#define QLA_PIXEL_FORMAT QLI_PIXEL_FORMAT
+#define QLI_SINGLETON 1
 #define QLI_IMPLEMENTATION
 #include "qli.h"
 #define QLA_IMPLEMENTATION
 #include "qla.h"
 #define RPPM_IMPLEMENTATION
 #include "rppm.h"
-
-#define PIX_BUF (88)
 
 #define RGB_TO_RGB565LE(r, g, b) (uint16_t)(((((uint16_t)g))<<13) | ((((uint16_t)b)&0xf8)<<5) | (((uint16_t)r)&0xf8) | (((uint16_t)g)>>5))
 #define RGB_TO_RGB565BE(r, g, b) (((((uint16_t)r) & 0xf8) << 8) | ((((uint16_t)g) & 0xfc) << 3) | (((uint16_t)b) >> 3))
@@ -166,8 +166,6 @@ static unsigned long crc32(unsigned long crc, const void *_p, size_t len)
 	return (crc ^ 0xffffffffUL);
 }
 
-// calling ./qla delay filename-stem output-dir
-// filename template: "filename-stem%03d.ppm" , counter
 int main(int argc, char **argv)
 {
   char fnam[PATH_MAX];
@@ -196,9 +194,7 @@ int main(int argc, char **argv)
     {
       snprintf(fnam,sizeof(fnam),"%s%03d.ppm",argv[3],counter);
       imgp = (imgp+1) % 3;
-      fprintf(stderr,"open '%s'\n",fnam);
       if(0!=rppm_load(&img[imgp], fnam)) break;
-      fprintf(stderr,"ppm opened '%s'\n",fnam);
       if(!inited)
       {
         // write header
@@ -206,14 +202,12 @@ int main(int argc, char **argv)
         if(0!=(qla_generate_header(&qla, hdr))) { fprintf(stderr,"Error generating header data\n"); exit(1); }
         fwrite(hdr, sizeof(hdr), 1, f);
         if(ferror(f)) { fprintf(stderr,"Write error\n"); exit(1); }
-        buflen=QLA_HEADER_LEN+(img[imgp].width*img[imgp].height*QLI_BPP2)/2;
+        buflen=QLA_HEADER_LEN+(img[imgp].width*img[imgp].height*QLI_BPP2); // allow more space than the uncompressed length for wors case
         buf=malloc(buflen);
         if(NULL==buf) { fprintf(stderr,"Out of memory\n"); exit(1); }
-        fprintf(stderr,"header written\n");
         inited=1;
       }
       frame_len = qla_encode_frame(&qla, img[imgp].pixels, delay, buf, buflen);
-      fprintf(stderr,"frame %d encoded (%d bytes)\n",counter, frame_len);
       fwrite(buf, frame_len, 1, f);
       if(ferror(f)) { fprintf(stderr,"Write error\n"); exit(1); }
     }
@@ -224,13 +218,13 @@ int main(int argc, char **argv)
   }
   else if(argv[1][0]=='d')
   {
-#define READBUFLEN (512)
+#define READBUFLEN (121)
 #define OUTBUFLEN (255)
     uint8_t outbuf[OUTBUFLEN];
     uint8_t readbuf[READBUFLEN];
     uint32_t readbuf_len=0;
     uint8_t header[QLA_HEADER_LEN];
-    int xx=0,yy=0,rcol;
+    int xx=0,yy=0;
     int loop=0;
     int frameno=0;
     struct qla_anim q;
@@ -240,7 +234,6 @@ int main(int argc, char **argv)
     fseek(fp, 0, SEEK_SET);
     fread(header,1,QLA_HEADER_LEN,fp);
     int st=qla_init_header(&q, header, sizeof(header), NULL, 0);
-    fprintf(stderr," HDR %dx%d e%d f=0x%x %d delay=%dms pos=%d size=%d\n",q.width,q.height,q.extended,q.flags,q.metai,q.delay,q.pos,q.data_size);
     if(st!=0) 
     {
       fprintf(stderr,"ERROR init header\n");
@@ -305,14 +298,13 @@ int main(int argc, char **argv)
         //time2_ms = time_now();
         //if( (time2_ms-time1_ms) < q.delay ) sleep( q.delay-(time2_ms-time1_ms) );
         //time1_ms = time2_ms;
-        fprintf(stderr,"FRANE NO #%d\n",frameno);
+        fprintf(stderr,"\nFRANE NO #%d\n",frameno);
       }
       else if((status&QLA_NEWRECT)!=0)
       {
         fprintf(stderr," SET_WINDOW %d,%d %dx%d [size=%d]\n",q.rect.x, q.rect.y, q.rect.w, q.rect.h, q.rect.w*q.rect.h);
         xx=0;
         yy=0;
-        rcol=rand()%0xffff;
       }
       else if(size>0)
       {
@@ -332,7 +324,7 @@ int main(int argc, char **argv)
           fb888[p+0]= r;
           fb888[p+1]= g;
           fb888[p+2]= b;
-          if(++xx>=q.rect.w) { xx=0; yy++; }
+          if(++xx>=q.rect.w) { xx=0; yy+=1; }
           p=(q.rect.y+yy)*(q.width*3)+((q.rect.x+xx)*3);
           s-=3;
           if(s<0) { break; }
@@ -344,15 +336,14 @@ int main(int argc, char **argv)
           fb888[p+0]= r;
           fb888[p+1]= g;
           fb888[p+2]= b;
-          if(++xx>=q.rect.w) { xx=0; yy++; }
+          if(++xx>=q.rect.w) { xx=0; yy+=1; }
         }
 #else
         for(int i=0;i<(size*2)/QLI_BPP2;i++)
         {
           for(int j=0;j<QLI_BPP;j++)
           {
-            if(q.rect.w<0)  framebuffer[ j + ((q.rect.y+yy)*q.width*QLI_BPP) + ((q.rect.x+xx)*QLI_BPP) ]=rcol;
-            else            framebuffer[ j + ((q.rect.y+yy)*q.width*QLI_BPP) + ((q.rect.x+xx)*QLI_BPP) ]=outbuf[i*QLI_BPP+j];
+            framebuffer[ j + ((q.rect.y+yy)*q.width*QLI_BPP) + ((q.rect.x+xx)*QLI_BPP) ]=outbuf[i*QLI_BPP+j];
           }
           xx++;
           if(xx>=q.rect.w)

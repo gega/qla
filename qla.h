@@ -34,6 +34,13 @@
 
 #include <stdint.h>
 
+#ifndef QLA_PIXEL_FORMAT
+#error "QLA_PIXEL_FORMAT needs to be defined as well as QLI_PIXEL_FORMAT was"
+#endif
+
+#if QLA_PIXEL_FORMAT != QLI_PIXEL_FORMAT
+#error "QLA_PIXEL_FORMAT needs to be defined the same way as QLI_PIXEL_FORMAT was"
+#endif
 
 #define QLA_MAGIC0 ('q')
 #define QLA_MAGIC1 ('l')
@@ -59,14 +66,15 @@ struct qla_rect
 #ifdef QLA_DECODE
 
 
-#define QLAF_NEWFRAME (1L<<3)
-#define QLAF_NEWRECT  (1L<<4)
-#define QLAF_LOOP     (1L<<5)
+#define QLAF_NEWFRAME      (1L<<3)
+#define QLAF_NEWRECT       (1L<<4)
+#define QLAF_LOOP          (1L<<5)
 
 #define QLA_ERROR    (1)
 #define QLA_NEWRECT  (2)
 #define QLA_NEWFRAME (4)
 #define QLA_NEWCHUNK (8)
+#define QLA_EOS      (16)
 
 
 
@@ -81,7 +89,6 @@ struct qla_anim
   uint16_t delay;
   uint32_t pos;
   struct qla_rect rect;
-  int32_t rect_bytes;
   struct qli_image qli;
   uint8_t *data;
   uint32_t data_size;
@@ -161,17 +168,15 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
 {
   int32_t bytes_count=0;
   int new_chunk=0;
+  int flags=0;
   
+  if(qla->pos>=qla->data_size) return(QLA_NEWCHUNK);
   if(QLAF_NEWRECT==(qla->flags&QLAF_NEWRECT))
   {
     while(qla->metai<(qla->extended?8:4))
     {
-      int32_t p1=qla->qli.pos;
-      qla->metab[qla->metai]=qli_get_next_byte(&qla->qli,&new_chunk);
-      int32_t p2=qla->qli.pos;
-      if(new_chunk) return(QLA_NEWCHUNK);
-      qla->pos+=p2-p1;
-      qla->metai++;
+      qla->metab[qla->metai++] = qla->data[qla->pos++];
+      if(qla->pos>=qla->data_size) return(QLA_NEWCHUNK);
     }
     if(qla->extended)
     {
@@ -189,9 +194,8 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
     }
     // clear flags
     qla->flags&=~QLAF_NEWRECT;
-    qla->rect_bytes=QLI_PIXEL_TO_BYTE(qla->rect.w * qla->rect.h);
     qla->metai=0;
-    if( qla->rect_bytes != 0)
+    if( (qla->rect.w+qla->rect.h) != 0)
     {
       qli_init(&qla->qli, qla->rect.w, qla->rect.h, &qla->data[qla->pos], qla->data_size - qla->pos, 0);
       return(QLA_NEWRECT);
@@ -201,16 +205,13 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
       qla->flags|=QLAF_NEWFRAME;
     }
   }
+  if(qla->pos>=qla->data_size) return(QLA_NEWCHUNK);
   if(QLAF_NEWFRAME==(qla->flags&QLAF_NEWFRAME))
   {
     while(qla->metai<2)
     {
-      int32_t p1=qla->qli.pos;
-      qla->metab[qla->metai]=qli_get_next_byte(&qla->qli,&new_chunk);
-      int32_t p2=qla->qli.pos;
-      if(new_chunk) return(QLA_NEWCHUNK);
-      qla->pos+=p2-p1;
-      qla->metai++;
+      qla->metab[qla->metai++]=qla->data[qla->pos++];
+      if(qla->pos>=qla->data_size) return(QLA_NEWCHUNK);
     }
     qla->metai=0;
     // update delay
@@ -221,25 +222,11 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
     return(QLA_NEWFRAME);
   }
   // decode
+  qla->pos += qli_decode(&qla->qli, dest, bufsize, &flags, &bytes_count);
+  if(((flags & QLI_RF_END_OF_STREAM) != 0)) qla->flags|=QLAF_NEWRECT;
+  new_chunk = ((flags & QLI_RF_MORE_DATA) != 0) ? QLA_NEWCHUNK : 0;
 
-  int32_t p1=qla->qli.pos;
-  bytes_count=qli_decode(&qla->qli, dest, bufsize, &new_chunk);
-  int32_t p2=qla->qli.pos;
-
-  // housekeeping
-  qla->rect_bytes-=bytes_count;
-  if(qla->rect_bytes<0) // FIXME: no need this cond
-  {
-    qla->pos+=qla->rect_bytes;
-    qla->qli.pos+=qla->rect_bytes;
-    qla->rect_bytes=0;
-  }
-  qla->pos+=p2-p1;
-
-  // check if rect finished
-  if(qla->rect_bytes==0) qla->flags|=QLAF_NEWRECT;
-
-  return((( bytes_count )<<8) | (new_chunk?QLA_NEWCHUNK:0));
+  return((( bytes_count )<<8) | new_chunk);
 }
 
 int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8_t *data, uint32_t data_size)
@@ -251,7 +238,7 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
     ||	hdr[3]!=QLA_MAGIC3 ) return(-1);
   int width =hdr[4]<<8 | hdr[5];
   int height=hdr[6]<<8 | hdr[7];
-  if(hdr[8]!=QLI_PIXEL_FORMAT) return(-1);
+  if(hdr[8]!=QLA_PIXEL_FORMAT) return(-1);
   if(hdr[9]!=qli_index_code[QLI_INDEX_SIZE]) return(-1);
   qla_init_decode(qla, width, height, data, data_size);
 
@@ -386,7 +373,7 @@ int qla_generate_header(struct qla_encode *qle, uint8_t *data)
   data[i++]=qle->width&0xff;
   data[i++]=qle->height>>8;
   data[i++]=qle->height&0xff;
-  data[i++]=QLI_PIXEL_FORMAT;
+  data[i++]=QLA_PIXEL_FORMAT;
   data[i++]=qli_index_code[QLI_INDEX_SIZE];
   return(0);
 }
@@ -500,7 +487,7 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
     if(extended) buf[pos++] = qle->height>>8&0xff;
     buf[pos++] = qle->height&0xff;
     // store qli encoded frame
-    pos+=qli_encode(&rgb[0], qle->width, qle->height, qle->width*sizeof(uint32_t), &buf[pos], bufsize-pos);
+    pos+=qli_encode(&rgb[0], qle->width, qle->height, &buf[pos], bufsize-pos, qle->width*sizeof(uint32_t));
     // close dirty rects with 0,0,0,0
     for(i=0; i<hdr; i++) buf[pos++]=0;
   }
@@ -508,7 +495,7 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
   {
     // subsequent frames
     //int ref_size=
-    qli_encode(&rgb[0], qle->width, qle->height, qle->width*sizeof(uint32_t), NULL, 0);
+    qli_encode(&rgb[0], qle->width, qle->height, NULL, 0, qle->width*sizeof(uint32_t));
     // 1. make xor with curr_frame and rgb
     if(0>(qla_xor(qle->xor_buffer, qle->width, qle->height, qle->curr_frame, rgb))) return(-1);
     // 2. get the list of largest rectangles
@@ -542,7 +529,7 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
       buf[pos++]                =  dirty[i].w      &0xff;
       if(extended) buf[pos++]   = (dirty[i].h >>8) &0xff;
       buf[pos++]                =  dirty[i].h      &0xff;
-      pos+=qli_encode(&rgb[qle->width*dirty[i].y + dirty[i].x], dirty[i].w, dirty[i].h, qle->width*sizeof(uint32_t), &buf[pos], bufsize-pos);
+      pos+=qli_encode(&rgb[qle->width*dirty[i].y + dirty[i].x], dirty[i].w, dirty[i].h, &buf[pos], bufsize-pos, qle->width*sizeof(uint32_t));
     }
     if(old_dirty) free(old_dirty);
     if(new_dirty) free(new_dirty);
