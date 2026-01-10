@@ -252,7 +252,7 @@ typedef struct QLI_TYPE(qli_image, QLI_POSTFIX) QLI_TYPE(qli_image_t, QLI_POSTFI
 int QLI_FUNC_NAME(qli_init, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *qli, uint16_t width, uint16_t height, uint8_t *data, int32_t size, uint16_t stride);
 int QLI_FUNC_NAME(qli_init_header, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *qli, uint8_t *header, uint16_t stride);
 void QLI_FUNC_NAME(qli_rewind, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *qli);
-int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *qli, uint8_t *dest, int32_t byte_cnt, int *new_chunk, int *emitted);
+int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *qli, uint8_t *dest, int32_t byte_cnt, int *new_chunk, int32_t *emitted);
 void QLI_FUNC_NAME(qli_new_chunk, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *qli, uint8_t *data, int32_t data_size);
 int QLI_FUNC_NAME(qli_get_next_byte, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *qli, int *new_chunk);
 int QLI_FUNC_NAME(qli_pixels_to_bytes, QLI_POSTFIX) (int pixels);
