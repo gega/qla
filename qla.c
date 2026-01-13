@@ -45,6 +45,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 
 #define QLA_DEBUG 0
@@ -184,21 +185,29 @@ int main(int argc, char **argv)
     fprintf(stderr,"Usage: %s [e|d] delay filename-stem out.qla\n",argv[0]);
     exit(0);
   }
-  if(argv[1][0]=='e')
+  if(tolower(argv[1][0])=='e')
   {
     // encode
     FILE *f;
+    int loop=(argv[1][0]=='e'?0:1);
+    int done=0;
     delay=atoi(argv[2]);
     if(NULL==(f=fopen(argv[4],"wb"))) { fprintf(stderr,"Cannot create output file '%s'\n",argv[4]); exit(1); }
-    for(counter=0; 1 ;counter++)
+    for(counter=0; !done ;counter++)
     {
       snprintf(fnam,sizeof(fnam),"%s%03d.ppm",argv[3],counter);
       imgp = (imgp+1) % 3;
-      if(0!=rppm_load(&img[imgp], fnam)) break;
+      if(0!=rppm_load(&img[imgp], fnam))
+      {
+        if(!loop) break;
+        snprintf(fnam,sizeof(fnam),"%s%03d.ppm",argv[3],0);
+        if(0!=rppm_load(&img[imgp], fnam)) break;
+        done=1;
+      }
       if(!inited)
       {
         // write header
-        if(0!=(qla_init_encode(&qla, img[imgp].width, img[imgp].height, rel_cb))) { fprintf(stderr,"Unable to initialize qla struct\n"); exit(1); }
+        if(0!=(qla_init_encode(&qla, img[imgp].width, img[imgp].height, rel_cb, loop?QLAF_LOOP:0))) { fprintf(stderr,"Unable to initialize qla struct\n"); exit(1); }
         if(0!=(qla_generate_header(&qla, hdr))) { fprintf(stderr,"Error generating header data\n"); exit(1); }
         fwrite(hdr, sizeof(hdr), 1, f);
         if(ferror(f)) { fprintf(stderr,"Write error\n"); exit(1); }
@@ -211,6 +220,10 @@ int main(int argc, char **argv)
       fwrite(buf, frame_len, 1, f);
       if(ferror(f)) { fprintf(stderr,"Write error\n"); exit(1); }
     }
+    // write EOF marker
+    frame_len = qla_encode_frame(&qla, NULL, 0, buf, buflen);
+    fwrite(buf, frame_len, 1, f);
+    if(ferror(f)) { fprintf(stderr,"Write error\n"); exit(1); }
     if(NULL!=buf) free(buf);
     fclose(f);
     if(inited) qla_destroy_encode(&qla);
@@ -225,7 +238,6 @@ int main(int argc, char **argv)
     uint32_t readbuf_len=0;
     uint8_t header[QLA_HEADER_LEN];
     int xx=0,yy=0;
-    int loop=0;
     int frameno=0;
     struct qla_anim q;
     FILE *fp = fopen(argv[2],"rb");
@@ -234,14 +246,13 @@ int main(int argc, char **argv)
     fseek(fp, 0, SEEK_SET);
     fread(header,1,QLA_HEADER_LEN,fp);
     int st=qla_init_header(&q, header, sizeof(header), NULL, 0);
-    if(st!=0) 
+    if(st!=0)
     {
       fprintf(stderr,"ERROR init header\n");
       exit(0);
     }
     uint8_t *framebuffer=calloc((q.width*q.height*QLI_BPP2)/2,1);
     uint8_t *fb888=calloc(q.width*q.height,3);
-    size_t first_frame=ftell(fp);
     while( 1 )
     {
         static unsigned long cnt;
@@ -252,21 +263,7 @@ int main(int argc, char **argv)
       {
         readbuf_len=fread(readbuf, 1, MIN(sizeof(readbuf),insize), fp);
         insize-=readbuf_len;
-        qla_new_chunk(&q, readbuf, readbuf_len);
-        if(readbuf_len==0)
-        {
-          // loop!
-          fprintf(stderr," LOOP!\n");
-          fseek(fp, first_frame, SEEK_SET);
-          loop=1;
-          break;
-        }
-        if(feof(fp))
-        {
-          fprintf(stderr," LOOP DELAY!\n");
-          fseek(fp, first_frame, SEEK_SET);
-          loop=1;
-        }
+        if(readbuf_len>0) qla_new_chunk(&q, readbuf, readbuf_len);
       }
       if((status&QLA_NEWFRAME)!=0)
       {
@@ -288,17 +285,10 @@ int main(int argc, char **argv)
           fwrite(fb888,q.width*q.height,3,fo);
           wppm_close(fo);
         }
-        if(!loop) frameno++;
-        else
-        {
-          frameno=1;
-          break;
-        }
-        loop=0;
+        frameno++;
         //time2_ms = time_now();
         //if( (time2_ms-time1_ms) < q.delay ) sleep( q.delay-(time2_ms-time1_ms) );
         //time1_ms = time2_ms;
-        fprintf(stderr,"\nFRANE NO #%d\n",frameno);
       }
       else if((status&QLA_NEWRECT)!=0)
       {
@@ -353,6 +343,12 @@ int main(int argc, char **argv)
           }
         }
 #endif
+      }
+      if((status&QLA_EOS)!=0)
+      {
+        //qla_init_decode(&q, q.width, q.height, NULL, 0, q.flags);
+        fprintf(stderr,"EOS\n");
+        break;
       }
     }
     free(framebuffer);

@@ -70,6 +70,8 @@ struct qla_rect
 #define QLAF_NEWRECT       (1L<<4)
 #define QLAF_LOOP          (1L<<5)
 
+#define QLAFM_FLAGMASK (0xe0)
+
 #define QLA_ERROR    (1)
 #define QLA_NEWRECT  (2)
 #define QLA_NEWFRAME (4)
@@ -109,6 +111,7 @@ struct qla_encode
   uint32_t *curr_frame;
   qla_buffer_release_cb_t buf_rel_cb;
   uint8_t *xor_buffer;
+  uint8_t flags; // QLAFM_FLAGMASK
 };
 
 #endif
@@ -117,13 +120,13 @@ struct qla_encode
 typedef int32_t qla_status_t;
 qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize);
 typedef size_t qla_read_t(void *fd, uint8_t *buf, size_t count);
-int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size);
+int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size, uint8_t flags);
 int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8_t *data, uint32_t data_size);
 #endif
 
 #ifdef QLA_ENCODE
 int qla_generate_header(struct qla_encode *qla, uint8_t *data);
-int qla_init_encode(struct qla_encode *qle, uint16_t width, uint16_t height, qla_buffer_release_cb_t buf_rel);
+int qla_init_encode(struct qla_encode *qle, uint16_t width, uint16_t height, qla_buffer_release_cb_t buf_rel, uint8_t flags);
 int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, uint8_t *buf, size_t bufsize);
 
 #endif
@@ -139,7 +142,7 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
 #define QLA_GET_SIZE(status) ((status)>>8)
 
 
-int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size)
+int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size, uint8_t flags)
 {
   if(NULL==qla||width==0||height==0) return(-1);
   memset(qla,0,sizeof(struct qla_anim));
@@ -148,7 +151,7 @@ int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8
   qla->data_size=data_size;
   qla->width=width;
   qla->height=height;
-  qla->flags|=QLAF_NEWFRAME;
+  qla->flags=flags|QLAF_NEWFRAME;
   return(0);
 }
 
@@ -176,7 +179,11 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
     while(qla->metai<(qla->extended?8:4))
     {
       qla->metab[qla->metai++] = qla->data[qla->pos++];
-      if(qla->pos>=qla->data_size) return(QLA_NEWCHUNK);
+      if(qla->pos>=qla->data_size)
+      {
+        if(qla->metai>2 && qla->metab[0]==0xff && qla->metab[1]==0xff) return(QLA_NEWFRAME|QLA_EOS);
+        return(QLA_NEWCHUNK);
+      }
     }
     if(qla->extended)
     {
@@ -211,11 +218,16 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
     while(qla->metai<2)
     {
       qla->metab[qla->metai++]=qla->data[qla->pos++];
-      if(qla->pos>=qla->data_size) return(QLA_NEWCHUNK);
+      if(qla->pos>=qla->data_size)
+      {
+        if(qla->metai>=2 && qla->metab[0]==0xff && qla->metab[1]==0xff) return(QLA_NEWFRAME|QLA_EOS);
+        return(QLA_NEWCHUNK);
+      }
     }
     qla->metai=0;
     // update delay
     qla->delay = qla->metab[0]<<8 | qla->metab[1];
+    if(qla->delay==0xffff) return(QLAF_NEWFRAME|QLA_EOS);
     // clear new frame flag
     qla->flags&=~QLAF_NEWFRAME;
     qla->flags|=QLAF_NEWRECT;
@@ -238,9 +250,9 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
     ||	hdr[3]!=QLA_MAGIC3 ) return(-1);
   int width =hdr[4]<<8 | hdr[5];
   int height=hdr[6]<<8 | hdr[7];
-  if(hdr[8]!=QLA_PIXEL_FORMAT) return(-1);
+  if((hdr[8]&~QLAFM_FLAGMASK)!=QLA_PIXEL_FORMAT) return(-1);
   if(hdr[9]!=qli_index_code[QLI_INDEX_SIZE]) return(-1);
-  qla_init_decode(qla, width, height, data, data_size);
+  qla_init_decode(qla, width, height, data, data_size, hdr[8]&QLAFM_FLAGMASK);
 
   return(0);
 }
@@ -342,7 +354,7 @@ static int qla_get_dirty_rects(int width, int height, struct qla_rect clean[], i
   return(work_count);
 }
 
-int qla_init_encode(struct qla_encode *qle, uint16_t width, uint16_t height, qla_buffer_release_cb_t buf_rel)
+int qla_init_encode(struct qla_encode *qle, uint16_t width, uint16_t height, qla_buffer_release_cb_t buf_rel, uint8_t flags)
 {
   if(qle==NULL || width==0 || height==0) return(-1);
   qle->width=width;
@@ -350,6 +362,7 @@ int qla_init_encode(struct qla_encode *qle, uint16_t width, uint16_t height, qla
   qle->xor_buffer=malloc(width*height);
   qle->curr_frame=NULL;
   qle->buf_rel_cb=buf_rel;
+  qle->flags=flags;
   return(0);
 }
 
@@ -373,7 +386,7 @@ int qla_generate_header(struct qla_encode *qle, uint8_t *data)
   data[i++]=qle->width&0xff;
   data[i++]=qle->height>>8;
   data[i++]=qle->height&0xff;
-  data[i++]=QLA_PIXEL_FORMAT;
+  data[i++]=QLA_PIXEL_FORMAT | (qle->flags&QLAFM_FLAGMASK);
   data[i++]=qli_index_code[QLI_INDEX_SIZE];
   return(0);
 }
@@ -465,8 +478,15 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
   int extended;
   uint8_t *singles;
 
-  if(qle==NULL || NULL==rgb) return(-1);
-  if(NULL==buf) bufsize = SIZE_MAX;
+  if(qle==NULL || buf==NULL) return(-1);
+  
+  if(rgb==NULL)
+  {
+    // EOF marker
+    buf[pos++] = 0xff;
+    buf[pos++] = 0xff;
+    return(pos);
+  }
   if(NULL==( singles = calloc(1, qle->width*qle->height) )) return(-1);
   extended=(qle->width>255 || qle->height>255);
   hdr=(extended ? sizeof(uint16_t)*4 : sizeof(uint8_t)*4);
