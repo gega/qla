@@ -66,11 +66,11 @@ struct qla_rect
 #ifdef QLA_DECODE
 
 
-#define QLAF_NEWFRAME      (1L<<3)
-#define QLAF_NEWRECT       (1L<<4)
+#define QLAF_NEWFRAME      (1L<<7)
+#define QLAF_NEWRECT       (1L<<6)
 #define QLAF_LOOP          (1L<<5)
 
-#define QLAFM_FLAGMASK (0xe0)
+#define QLAFM_FLAGMASK (0xe0) // 1110 0000
 
 #define QLA_ERROR    (1)
 #define QLA_NEWRECT  (2)
@@ -90,6 +90,7 @@ struct qla_anim
   uint8_t metab[8];     // metadata buffer for a) rectangle dimensions b) delay for new frames
   uint16_t delay;
   uint32_t pos;
+  uint32_t gpos;
   struct qla_rect rect;
   struct qli_image qli;
   uint8_t *data;
@@ -123,6 +124,16 @@ typedef size_t qla_read_t(void *fd, uint8_t *buf, size_t count);
 int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size, uint8_t flags);
 int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8_t *data, uint32_t data_size);
 #endif
+
+// call only when qla_init_decode() returned QLA_NEWFRAME
+#define qla_rewind_pos(qla) ((qla)->pos+(qla)->gpos-2)
+#define qla_rewind_reset(qla) do { (qla)->pos=0; \
+                                   (qla)->gpos=0; \
+                                   (qla)->data=NULL; \
+                                   (qla)->data_size=0; \
+                                   (qla)->flags&=~QLAF_NEWFRAME; \
+                                   (qla)->flags|=QLAF_NEWRECT; \
+                                   } while(0)
 
 #ifdef QLA_ENCODE
 int qla_generate_header(struct qla_encode *qla, uint8_t *data);
@@ -160,6 +171,7 @@ void qla_new_chunk(struct qla_anim *qla, uint8_t *data, uint32_t data_size)
   if(NULL==qla||NULL==data) return;
   qla->data=data;
   qla->data_size=data_size;
+  qla->gpos+=qla->pos;
   qla->pos=0;
   qli_new_chunk(&qla->qli, data, data_size);
 }
@@ -181,7 +193,7 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
       qla->metab[qla->metai++] = qla->data[qla->pos++];
       if(qla->pos>=qla->data_size)
       {
-        if(qla->metai>2 && qla->metab[0]==0xff && qla->metab[1]==0xff) return(QLA_NEWFRAME|QLA_EOS);
+        if(qla->metai>2 && qla->metab[0]==0xff && qla->metab[1]==0xff) return(QLA_EOS);
         return(QLA_NEWCHUNK);
       }
     }
@@ -220,14 +232,14 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
       qla->metab[qla->metai++]=qla->data[qla->pos++];
       if(qla->pos>=qla->data_size)
       {
-        if(qla->metai>=2 && qla->metab[0]==0xff && qla->metab[1]==0xff) return(QLA_NEWFRAME|QLA_EOS);
+        if(qla->metai>=2 && qla->metab[0]==0xff && qla->metab[1]==0xff) return(QLA_EOS);
         return(QLA_NEWCHUNK);
       }
     }
     qla->metai=0;
     // update delay
     qla->delay = qla->metab[0]<<8 | qla->metab[1];
-    if(qla->delay==0xffff) return(QLAF_NEWFRAME|QLA_EOS);
+    if(qla->delay==0xffff) return(QLA_EOS);
     // clear new frame flag
     qla->flags&=~QLAF_NEWFRAME;
     qla->flags|=QLAF_NEWRECT;

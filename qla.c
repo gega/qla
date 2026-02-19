@@ -49,6 +49,7 @@
 
 
 #define QLA_DEBUG 0
+#define QLI_DEBUG 0
 #define QLI_STRIDE 0
 #define QLI_ENDIAN QLI_BIG_ENDIAN
 #define QLI_PIXEL_FORMAT QLI_PF_RGB444
@@ -200,7 +201,8 @@ int main(int argc, char **argv)
       if(0!=rppm_load(&img[imgp], fnam))
       {
         if(!loop) break;
-        snprintf(fnam,sizeof(fnam),"%s%03d.ppm",argv[3],0);
+        counter=0;
+        snprintf(fnam,sizeof(fnam),"%s%03d.ppm",argv[3],counter);
         if(0!=rppm_load(&img[imgp], fnam)) break;
         done=1;
       }
@@ -211,7 +213,7 @@ int main(int argc, char **argv)
         if(0!=(qla_generate_header(&qla, hdr))) { fprintf(stderr,"Error generating header data\n"); exit(1); }
         fwrite(hdr, sizeof(hdr), 1, f);
         if(ferror(f)) { fprintf(stderr,"Write error\n"); exit(1); }
-        buflen=QLA_HEADER_LEN+(img[imgp].width*img[imgp].height*QLI_BPP2); // allow more space than the uncompressed length for wors case
+        buflen=QLA_HEADER_LEN+(img[imgp].width*img[imgp].height*QLI_BPP2); // allow more space than the uncompressed length for worst case
         buf=malloc(buflen);
         if(NULL==buf) { fprintf(stderr,"Out of memory\n"); exit(1); }
         inited=1;
@@ -229,7 +231,7 @@ int main(int argc, char **argv)
     if(inited) qla_destroy_encode(&qla);
     else { fprintf(stderr,"No input files\n"); exit(1); }
   }
-  else if(argv[1][0]=='d')
+  else if(argv[1][0]=='d') //---------------------------------------------------------------------
   {
 #define READBUFLEN (121)
 #define OUTBUFLEN (255)
@@ -237,13 +239,11 @@ int main(int argc, char **argv)
     uint8_t readbuf[READBUFLEN];
     uint32_t readbuf_len=0;
     uint8_t header[QLA_HEADER_LEN];
+    uint32_t recpos=0;
     int xx=0,yy=0;
     int frameno=0;
     struct qla_anim q;
     FILE *fp = fopen(argv[2],"rb");
-    fseek(fp, 0, SEEK_END);
-    int insize=ftell(fp)-QLA_HEADER_LEN;
-    fseek(fp, 0, SEEK_SET);
     fread(header,1,QLA_HEADER_LEN,fp);
     int st=qla_init_header(&q, header, sizeof(header), NULL, 0);
     if(st!=0)
@@ -261,18 +261,21 @@ int main(int argc, char **argv)
       status=QLA_GET_STATUS(status);
       if((status&QLA_NEWCHUNK)!=0)
       {
-        readbuf_len=fread(readbuf, 1, MIN(sizeof(readbuf),insize), fp);
-        insize-=readbuf_len;
+        long p=ftell(fp);
+        readbuf_len=fread(readbuf, 1, sizeof(readbuf), fp);
+        if(readbuf_len>0) fprintf(stderr,"QLA_NEWCHUNK %d bytes from %ld\n",readbuf_len,p);
         if(readbuf_len>0) qla_new_chunk(&q, readbuf, readbuf_len);
       }
       if((status&QLA_NEWFRAME)!=0)
       {
+        fprintf(stderr,"QLA_NEWFRAME %d\n",frameno);
+        if(frameno==1) recpos=qla_rewind_pos(&q)+QLA_HEADER_LEN;
         if(frameno!=0)
         {
           FILE *fo=wppm_newframe("out",frameno);
           wppm_header(fo, q.width, q.height);
 #if QLI_PIXEL_FORMAT == QLI_PF_RGB444
-  // nothing needs to be done
+          // nothing needs to be done
 #else
           for(int i=0;i<(q.width*q.height);i++)
           {
@@ -331,24 +334,25 @@ int main(int argc, char **argv)
 #else
         for(int i=0;i<(size*2)/QLI_BPP2;i++)
         {
-          for(int j=0;j<QLI_BPP;j++)
-          {
-            framebuffer[ j + ((q.rect.y+yy)*q.width*QLI_BPP) + ((q.rect.x+xx)*QLI_BPP) ]=outbuf[i*QLI_BPP+j];
-          }
-          xx++;
-          if(xx>=q.rect.w)
-          {
-            xx=0;
-            yy++;
-          }
+          for(int j=0;j<QLI_BPP;j++) framebuffer[ j + ((q.rect.y+yy)*q.width*QLI_BPP) + ((q.rect.x+xx)*QLI_BPP) ]=outbuf[i*QLI_BPP+j];
+          if(++xx>=q.rect.w) { xx=0; yy++; }
         }
 #endif
       }
       if((status&QLA_EOS)!=0)
       {
-        //qla_init_decode(&q, q.width, q.height, NULL, 0, q.flags);
+        // if loop is enabled we are at the first frame now, we should start from second frame
         fprintf(stderr,"EOS\n");
-        break;
+        if((q.flags&QLAF_LOOP)!=0)
+        {
+          fprintf(stderr,"LOOP SEEK to %d\n",recpos);
+          fseek(fp, recpos, SEEK_SET);
+          frameno=2;
+          qla_rewind_reset(&q);
+          // continue processing here, if loop decoding needed
+          break;
+        }
+        else break;
       }
     }
     free(framebuffer);
