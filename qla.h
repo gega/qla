@@ -126,7 +126,7 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
 #endif
 
 // call only when qla_init_decode() returned QLA_NEWFRAME
-#define qla_rewind_pos(qla) ((qla)->pos+(qla)->gpos-2)
+#define qla_rewind_pos(qla) ((qla)->pos+(qla)->gpos)
 #define qla_rewind_reset(qla) do { (qla)->pos=0; \
                                    (qla)->gpos=0; \
                                    (qla)->data=NULL; \
@@ -238,8 +238,8 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
     }
     qla->metai=0;
     // update delay
+    if(qla->metab[0]==0xff && qla->metab[1]==0xff) return(QLA_EOS);
     qla->delay = qla->metab[0]<<8 | qla->metab[1];
-    if(qla->delay==0xffff) return(QLA_EOS);
     // clear new frame flag
     qla->flags&=~QLAF_NEWFRAME;
     qla->flags|=QLAF_NEWRECT;
