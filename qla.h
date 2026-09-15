@@ -157,7 +157,7 @@ int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8
 {
   if(NULL==qla||width==0||height==0) return(-1);
   memset(qla,0,sizeof(struct qla_anim));
-  qla->extended=(qla->width>255 || qla->height>255);
+  qla->extended=(width>255 || height>255);
   qla->data=data;
   qla->data_size=data_size;
   qla->width=width;
@@ -264,9 +264,7 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
   int height=hdr[6]<<8 | hdr[7];
   if((hdr[8]&~QLAFM_FLAGMASK)!=QLA_PIXEL_FORMAT) return(-1);
   if(hdr[9]!=qli_index_code[QLI_INDEX_SIZE]) return(-1);
-  qla_init_decode(qla, width, height, data, data_size, hdr[8]&QLAFM_FLAGMASK);
-
-  return(0);
+  return(qla_init_decode(qla, width, height, data, data_size, hdr[8]&QLAFM_FLAGMASK));
 }
 
 #endif
@@ -485,12 +483,12 @@ static void qla_bytemap_fillrect(uint8_t *buf, int width, int height, int v, int
 int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, uint8_t *buf, size_t bufsize)
 {
   int area,val,hdr,i;
-  int pos=0;
+  int pos=0,encoded;
   struct qla_rect rct;
   int extended;
   uint8_t *singles;
 
-  if(qle==NULL || buf==NULL) return(-1);
+  if(qle==NULL || buf==NULL || bufsize<2 || bufsize>INT_MAX) return(-1);
   
   if(rgb==NULL)
   {
@@ -499,9 +497,10 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
     buf[pos++] = 0xff;
     return(pos);
   }
-  if(NULL==( singles = calloc(1, qle->width*qle->height) )) return(-1);
   extended=(qle->width>255 || qle->height>255);
   hdr=(extended ? sizeof(uint16_t)*4 : sizeof(uint8_t)*4);
+  if(bufsize < (size_t)(2+hdr)) return(-1);
+  if(NULL==( singles = calloc(1, qle->width*qle->height) )) return(-1);
   // write frame header (delay after frame) -- this is where the qla_anim pointer should be set
   buf[pos++] = (delay_ms>>8) & 0xff;
   buf[pos++] =  delay_ms     & 0xff;
@@ -509,6 +508,7 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
   if(qle->curr_frame==NULL)
   {
     // first frame
+    if(bufsize-pos < (size_t)(2*hdr)) return(-1);
     // store dirty rectangle as 0,0,width,height
     if(extended) buf[pos++] = 0;
     buf[pos++] = 0;
@@ -519,7 +519,9 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
     if(extended) buf[pos++] = qle->height>>8&0xff;
     buf[pos++] = qle->height&0xff;
     // store qli encoded frame
-    pos+=qli_encode(&rgb[0], qle->width, qle->height, &buf[pos], bufsize-pos, qle->width*sizeof(uint32_t));
+    encoded=qli_encode(&rgb[0], qle->width, qle->height, &buf[pos], bufsize-pos, qle->width*sizeof(uint32_t));
+    if(encoded<0 || (size_t)encoded>bufsize-pos-hdr) return(-1);
+    pos+=encoded;
     // close dirty rects with 0,0,0,0
     for(i=0; i<hdr; i++) buf[pos++]=0;
   }
