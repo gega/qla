@@ -463,9 +463,9 @@ static int qla_xor(uint8_t *xor8, int width, int height, uint32_t *rgb_a, uint32
     for(x=0;x<width;x++)
     {
       uint32_t pix_a = QLA_GET_24BIT_PIXEL(rgb_a, width, x, y);
-      qli_pixel_t ppx_a = QLI_RGB_PACK( QLA_RGB32_GREEN(pix_a), QLA_RGB32_GREEN(pix_a), QLA_RGB32_BLUE(pix_a));
+      qli_pixel_t ppx_a = QLI_RGB_PACK( QLA_RGB32_RED(pix_a), QLA_RGB32_GREEN(pix_a), QLA_RGB32_BLUE(pix_a));
       uint32_t pix_b = QLA_GET_24BIT_PIXEL(rgb_b, width, x, y);
-      qli_pixel_t ppx_b = QLI_RGB_PACK( QLA_RGB32_GREEN(pix_b), QLA_RGB32_GREEN(pix_b), QLA_RGB32_BLUE(pix_b));
+      qli_pixel_t ppx_b = QLI_RGB_PACK( QLA_RGB32_RED(pix_b), QLA_RGB32_GREEN(pix_b), QLA_RGB32_BLUE(pix_b));
       uint32_t xor = ppx_a ^ ppx_b;
       xor8[i++]=(xor==0?0:0xff);
       if(xor==0) same++;
