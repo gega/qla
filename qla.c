@@ -57,6 +57,7 @@
 #define QLI_SINGLETON 1
 #define QLI_IMPLEMENTATION
 #include "qli.h"
+#define QLA_HOLE 1
 #define QLA_IMPLEMENTATION
 #include "qla.h"
 #define RPPM_IMPLEMENTATION
@@ -174,46 +175,85 @@ int main(int argc, char **argv)
   int counter=0;
   struct qla_encode qla;
   int inited=0;
-  uint8_t hdr[QLA_HEADER_LEN];
+  uint8_t hdr[QLA_MAX_HEADER_LEN];
   uint8_t *buf=NULL;
   int buflen;
   int delay;
   int frame_len;
+  int hole=0;
+  qla_rect_t hole_rect={0};
+  char *font_filename=NULL;
 
   if(argc<2) { fprintf(stderr,"err, not enough arguments\n"); exit(0); }
-  if((argv[1][0]=='e'&&argc<5) || (argv[1][0]=='d'&&argc<3) )
+  if((tolower(argv[1][0])=='e'&&argc<6) || (argv[1][0]=='d'&&argc<3) )
   {
-    fprintf(stderr,"Usage: %s [e|d] delay filename-stem out.qla\n",argv[0]);
+    fprintf(stderr,"Usage: %s [eE|d] delay [x,y;w;h:fontfile|-] filename-stem out.qla\n",argv[0]);
     exit(0);
   }
   if(tolower(argv[1][0])=='e')
   {
     // encode
+    uint8_t *font_blob=NULL;
+    size_t font_blob_len=0;
     FILE *f;
-    int loop=(argv[1][0]=='e'?0:1);
-    int done=0;
+    int loop=(argv[1][0]=='e'?0:1); // lowercase e=no loop, uppercase E=loop
+    int done=0,hlen;
     delay=atoi(argv[2]);
-    if(NULL==(f=fopen(argv[4],"wb"))) { fprintf(stderr,"Cannot create output file '%s'\n",argv[4]); exit(1); }
+    if(isdigit(argv[3][0]))
+    {
+      hole=1;
+      if(sscanf(argv[3],"%hu,%hu;%hux%hu",&hole_rect.x, &hole_rect.y, &hole_rect.w, &hole_rect.h)!= 4)
+      {
+        fprintf(stderr,"Unable to parse hole dimensions from '%s'\n",argv[3]);
+        exit(1);
+      }
+      font_filename = strchr(argv[3], ':');
+      if(font_filename != NULL) font_filename++;
+      if(NULL!=font_filename)
+      {
+        long p;
+        FILE *ff=fopen(font_filename,"rb");
+        if(ff==NULL) { fprintf(stderr,"Cannot open font file '%s'\n",font_filename); exit(1); }
+        fseek(ff,0,SEEK_END);
+        p=ftell(ff);
+        if(p<0) { fprintf(stderr,"Seek error in '%s'\n",font_filename); exit(1); }
+        fseek(ff,0,SEEK_SET);
+        font_blob_len=p;
+        if(font_blob_len > 0xffffu) { fprintf(stderr,"Font file too large %ld (max 65535)\n",font_blob_len); exit(1); }
+        font_blob=malloc(p);
+        if(NULL==font_blob) { fprintf(stderr,"Out of memory\n"); exit(1); }
+        if(((size_t)p)!=(fread(font_blob,1,p,ff))) { fprintf(stderr,"Unable to read '%s'\n",font_filename); exit(1); }
+        fclose(ff);
+      }
+    }
+    if(NULL==(f=fopen(argv[5],"wb"))) { fprintf(stderr,"Cannot create output file '%s'\n",argv[5]); exit(1); }
     for(counter=0; !done ;counter++)
     {
-      snprintf(fnam,sizeof(fnam),"%s%03d.ppm",argv[3],counter);
+      snprintf(fnam,sizeof(fnam),"%s%03d.ppm",argv[4],counter);
       imgp = (imgp+1) % 3;
       if(0!=rppm_load(&img[imgp], fnam))
       {
         if(!loop) break;
         counter=0;
-        snprintf(fnam,sizeof(fnam),"%s%03d.ppm",argv[3],counter);
+        snprintf(fnam,sizeof(fnam),"%s%03d.ppm",argv[4],counter);
         if(0!=rppm_load(&img[imgp], fnam)) break;
         done=1;
       }
       if(!inited)
       {
         // write header
-        if(0!=(qla_init_encode(&qla, img[imgp].width, img[imgp].height, rel_cb, loop?QLAF_LOOP:0))) { fprintf(stderr,"Unable to initialize qla struct\n"); exit(1); }
-        if(0!=(qla_generate_header(&qla, hdr))) { fprintf(stderr,"Error generating header data\n"); exit(1); }
-        fwrite(hdr, sizeof(hdr), 1, f);
+        if(0!=(qla_init_encode(&qla, img[imgp].width, img[imgp].height, rel_cb, (loop?QLAF_LOOP:0) | (hole?QLAF_HOLE:0), &hole_rect))) { fprintf(stderr,"Unable to initialize qla struct\n"); exit(1); }
+        if(0>(hlen=qla_generate_header(&qla, hdr, font_blob_len))) { fprintf(stderr,"Error generating header data\n"); exit(1); }
+        fwrite(hdr, hlen, 1, f);
+        // fwrite font data as binary blob
+        if(font_blob!=NULL)
+        {
+          fwrite(font_blob, 1, font_blob_len, f);
+          free(font_blob);
+          font_blob=NULL;
+        }
         if(ferror(f)) { fprintf(stderr,"Write error\n"); exit(1); }
-        buflen=QLA_HEADER_LEN+(img[imgp].width*img[imgp].height*QLI_BPP2); // allow more space than the uncompressed length for worst case
+        buflen=QLA_MAX_HEADER_LEN+(img[imgp].width*img[imgp].height*QLI_BPP2); // allow more space than the uncompressed length for worst case
         buf=malloc(buflen);
         if(NULL==buf) { fprintf(stderr,"Out of memory\n"); exit(1); }
         inited=1;
@@ -238,19 +278,28 @@ int main(int argc, char **argv)
     uint8_t outbuf[OUTBUFLEN];
     uint8_t readbuf[READBUFLEN];
     uint32_t readbuf_len=0;
-    uint8_t header[QLA_HEADER_LEN];
+    uint8_t header[QLA_MAX_HEADER_LEN];
     uint32_t recpos=0;
     int xx=0,yy=0;
     int frameno=0;
     struct qla_anim q;
     FILE *fp = fopen(argv[2],"rb");
-    fread(header,1,QLA_HEADER_LEN,fp);
-    int st=qla_init_header(&q, header, sizeof(header), NULL, 0);
-    if(st!=0)
+    int rd=fread(header,1,QLA_MIN_HEADER_LEN,fp);
+    int st=qla_init_header(&q, header, rd, NULL, 0);
+    if(st>0)
+    {
+      // read more header
+      rd+=fread(&header[rd], 1, st, fp);
+      st=qla_init_header(&q, header, rd, NULL, 0);
+    }
+    if(st<0)
     {
       fprintf(stderr,"ERROR init header\n");
       exit(0);
     }
+    // skip blob
+    for(int i=0;i<q.font_len;i++) fgetc(fp);
+    int curr_header_len=rd;
     uint8_t *framebuffer=calloc((q.width*q.height*QLI_BPP2)/2,1);
     uint8_t *fb888=calloc(q.width*q.height,3);
     while( 1 )
@@ -269,7 +318,7 @@ int main(int argc, char **argv)
       if((status&QLA_NEWFRAME)!=0)
       {
         fprintf(stderr,"QLA_NEWFRAME %d\n",frameno);
-        if(frameno==1) recpos=qla_rewind_pos(&q)+QLA_HEADER_LEN;
+        if(frameno==1) recpos=qla_rewind_pos(&q)+curr_header_len+q.font_len;
         if(frameno!=0)
         {
           FILE *fo=wppm_newframe("out",frameno);

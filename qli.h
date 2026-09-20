@@ -442,7 +442,7 @@ struct QLI_STRUCT_NAME(qli_image, QLI_POSTFIX)
   int8_t remcnt;
   uint8_t rem[QLI_REMBUFSIZ];
   qli_pixel_t index[1L<<QLI_INDEX_SIZE];
-  QLI_USERDATA;
+  QLI_USERDATA
 };
 
 
@@ -452,8 +452,7 @@ struct QLI_STRUCT_NAME(qli_image, QLI_POSTFIX)
 #endif
 #ifndef QLI_UPDATE_INDEX
  #define QLI_UPDATE_INDEX(q,p) do { \
-   int idx = QLI_GET_INDEX(p); \
-   (q)->index[idx] = p; \
+   (q)->index[QLI_GET_INDEX(p)] = p; \
  } while(0)
 #endif
 
@@ -488,6 +487,9 @@ void QLI_FUNC_NAME(qli_new_chunk, QLI_POSTFIX) ( QLI_TYPE(qli_image_t, QLI_POSTF
  */
 int QLI_FUNC_NAME(qli_init, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *qli, uint16_t width, uint16_t height, uint8_t *data, int32_t size, uint16_t stride)
 {
+#if QLI_STRIDE == 0
+  (void)(stride);
+#endif
   if(NULL==qli) return(-1);
   memset(qli,0,sizeof(QLI_TYPE(qli_image_t, QLI_POSTFIX)));
   qli->width = width;
@@ -698,7 +700,7 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *
   if(qli->pixels_left == 0)
   {
     TRACE("end2");
-    if(QLI_FRACTION_PIXELS_LEFT(qli)) QLI_EMIT_PX_FLUSH(qli, dest, *emitted);
+    if(QLI_FRACTION_PIXELS_LEFT(qli)) { QLI_EMIT_PX_FLUSH(qli, dest, *emitted); }
     *new_chunk|=QLI_RF_END_OF_STREAM;
     TRACE_SUM();
     TRACE_QLI(qli, 1, bytes_cnt, *new_chunk, *emitted, 0);
@@ -757,8 +759,8 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *
       // this opcode is too large, need more data to process, copy all the bytes
       // including opcode to rem buffer and ask for more data
       qli->rem[0]=d1;
-      memcpy(&qli->rem[1], &qli->data[qli->pos], MIN((qli->size - qli->pos), (sizeof(qli->rem)-1) ));
-      qli->remcnt = MIN(1 + qli->size - qli->pos, sizeof(qli->rem));
+      memcpy(&qli->rem[1], &qli->data[qli->pos], MIN((qli->size - qli->pos), (((int32_t)sizeof(qli->rem))-1) ));
+      qli->remcnt = MIN(1 + qli->size - qli->pos, (int32_t)sizeof(qli->rem));
       *new_chunk|=QLI_RF_MORE_DATA;
       TRACE_SUM();
       TRACE_QLI(qli, 1, bytes_cnt, *new_chunk, *emitted, qli->pos - pos_1);
@@ -785,7 +787,7 @@ int QLI_FUNC_NAME(qli_decode, QLI_POSTFIX) (QLI_TYPE(qli_image_t, QLI_POSTFIX) *
   if(qli->pixels_left == 0)
   {
     TRACE("end3");
-    if(QLI_FRACTION_PIXELS_LEFT(qli)) QLI_EMIT_PX_FLUSH(qli, dest, *emitted);
+    if(QLI_FRACTION_PIXELS_LEFT(qli)) { QLI_EMIT_PX_FLUSH(qli, dest, *emitted); }
     *new_chunk|=QLI_RF_END_OF_STREAM;
     TRACE_SUM();
     TRACE_QLI(qli, 1, bytes_cnt, *new_chunk, *emitted, 0);
@@ -853,7 +855,7 @@ int QLI_FUNC_NAME(qli_encode, QLI_POSTFIX) (uint32_t *rgb, int width, int height
     while(run>0)
     {
       DBG_PRINT(1,"QLI_OP_RUN %d [%02x%02x%02x]\n",((run-QLI_MAX_RUN_VALUE)>0 ? QLI_MAX_RUN_VALUE : run) - 1, QLI_PACK_GET_RED(ppx_prev),QLI_PACK_GET_GREEN(ppx_prev),QLI_PACK_GET_BLUE(ppx_prev) );
-      if(NULL!=buf&&opos<bufsize) buf[opos++]=QLI_OP_RUN|( ((run-QLI_MAX_RUN_VALUE)>0 ? QLI_MAX_RUN_VALUE : run) - 1 );
+      if(NULL!=buf&&opos<(int32_t)bufsize) buf[opos++]=QLI_OP_RUN|( ((run-QLI_MAX_RUN_VALUE)>0 ? QLI_MAX_RUN_VALUE : run) - 1 );
       else DBG_PRINT(2,"  buffer FULL!!! opos=%d bufsize=%ld\n",opos,bufsize);
       run-=QLI_MAX_RUN_VALUE;
       out_cnt++;
@@ -863,7 +865,7 @@ int QLI_FUNC_NAME(qli_encode, QLI_POSTFIX) (uint32_t *rgb, int width, int height
     if(!res)
     {
       DBG_PRINT(1,"QLI_OP_INDEX %d [%02x%02x%02x]\n",idx, QLI_PACK_GET_RED(ppx),QLI_PACK_GET_GREEN(ppx),QLI_PACK_GET_BLUE(ppx) );
-      if(NULL!=buf&&opos<bufsize) buf[opos++]=QLI_OP_INDEX|(idx);
+      if(NULL!=buf&&opos<(int32_t)bufsize) buf[opos++]=QLI_OP_INDEX|(idx);
       else DBG_PRINT(2,"  buffer FULL!!! opos=%d bufsize=%ld\n",opos,bufsize);
       out_cnt++;
       continue;
@@ -875,7 +877,7 @@ int QLI_FUNC_NAME(qli_encode, QLI_POSTFIX) (uint32_t *rgb, int width, int height
     if( vr>-3 && vr<2 && vg>-3 && vg<2 && vb>-3 && vb<2 )
     {
       DBG_PRINT(1,"QLI_OP_DIFF [%02x%02x%02x]\n",QLI_PACK_GET_RED(ppx),QLI_PACK_GET_GREEN(ppx),QLI_PACK_GET_BLUE(ppx));
-      if(NULL!=buf&&opos<bufsize) buf[opos++]=QLI_OP_DIFF|( (vr + 2) << 4 | (vg + 2) << 2 | (vb + 2) );
+      if(NULL!=buf&&opos<(int32_t)bufsize) buf[opos++]=QLI_OP_DIFF|( (vr + 2) << 4 | (vg + 2) << 2 | (vb + 2) );
       else DBG_PRINT(2,"  buffer FULL!!! opos=%d bufsize=%ld\n",opos,bufsize);
       out_cnt++;
       continue;
@@ -884,7 +886,7 @@ int QLI_FUNC_NAME(qli_encode, QLI_POSTFIX) (uint32_t *rgb, int width, int height
     signed int vg_b = vb-vg;
     if( vg_r>-9 && vg_r<8 && vg>-33 && vg<32 && vg_b>-9 && vg_b<8 )
     {
-      if(NULL!=buf&&opos<bufsize-1)
+      if(NULL!=buf&&opos<((int32_t)bufsize)-1)
       {
         DBG_PRINT(1,"QLI_OP_LUMA [%02x%02x%02x]\n",QLI_PACK_GET_RED(ppx),QLI_PACK_GET_GREEN(ppx),QLI_PACK_GET_BLUE(ppx));
         buf[opos++]=QLI_OP_LUMA | (vg+32);
@@ -894,7 +896,7 @@ int QLI_FUNC_NAME(qli_encode, QLI_POSTFIX) (uint32_t *rgb, int width, int height
       out_cnt+=2;
       continue;
     }
-    if(NULL!=buf&&opos<bufsize-(((QLI_BPP2)+1)/2)-0)
+    if(NULL!=buf&&opos<((int32_t)bufsize)-(((QLI_BPP2)+1)/2)-0)
     {
       DBG_PRINT(1,"QLI_OP_RGB [%02x%02x%02x]\n",QLI_PACK_GET_RED(ppx),QLI_PACK_GET_GREEN(ppx),QLI_PACK_GET_BLUE(ppx));
       buf[opos++]=QLI_OP_RGB;

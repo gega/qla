@@ -42,12 +42,18 @@
 #error "QLA_PIXEL_FORMAT needs to be defined the same way as QLI_PIXEL_FORMAT was"
 #endif
 
+#ifndef QLA_HOLE
+#define QLA_HOLE 0
+#endif
+
 #define QLA_MAGIC0 ('q')
 #define QLA_MAGIC1 ('l')
 #define QLA_MAGIC2 ('a')
 #define QLA_MAGIC3 ('1')
 
-#define QLA_HEADER_LEN (4+4+2)
+#define QLA_MIN_HEADER_LEN (4+4+2)
+#define QLA_HOLE_HEADER_LEN  (10)
+#define QLA_MAX_HEADER_LEN (QLA_MIN_HEADER_LEN+QLA_HOLE_HEADER_LEN)
 
 #ifndef QLA_ENCODE
 #ifndef QLA_DECODE
@@ -65,12 +71,12 @@ struct qla_rect
 
 #ifdef QLA_DECODE
 
-
 #define QLAF_NEWFRAME      (1L<<7)
 #define QLAF_NEWRECT       (1L<<6)
 #define QLAF_LOOP          (1L<<5)
+#define QLAF_HOLE          (1L<<4)
 
-#define QLAFM_FLAGMASK (0xe0) // 1110 0000
+#define QLAFM_FLAGMASK (0xf0) // 1111 0000
 
 #define QLA_ERROR    (1)
 #define QLA_NEWRECT  (2)
@@ -79,22 +85,27 @@ struct qla_rect
 #define QLA_EOS      (16)
 
 
-
 struct qla_anim
 {
   uint16_t width;
   uint16_t height;
-  uint8_t extended;
   uint8_t flags;
-  int8_t metai;		// next index in metab[] buffer zero when set new state		
-  uint8_t metab[8];     // metadata buffer for a) rectangle dimensions b) delay for new frames
-  uint16_t delay;
+  int8_t metai;		  // next index in metab[] buffer zero when set new state
+  uint8_t metab[8];       // metadata buffer for a) rectangle dimensions b) delay for new frames
   uint32_t pos;
   uint32_t gpos;
+  uint16_t delay;
   struct qla_rect rect;
   struct qli_image qli;
   uint8_t *data;
   uint32_t data_size;
+#if QLA_HOLE == 1
+  uint16_t hole_x;
+  uint16_t hole_y;
+  uint16_t hole_w;
+  uint16_t hole_h;
+  uint16_t font_len;
+#endif
 };
 
 #endif
@@ -113,7 +124,20 @@ struct qla_encode
   qla_buffer_release_cb_t buf_rel_cb;
   uint8_t *xor_buffer;
   uint8_t flags; // QLAFM_FLAGMASK
+  uint16_t hole_x;
+  uint16_t hole_y;
+  uint16_t hole_w;
+  uint16_t hole_h;
+  uint32_t *hole_data;
 };
+
+typedef struct
+{
+  uint16_t x;
+  uint16_t y;
+  uint16_t w;
+  uint16_t h;
+} qla_rect_t;
 
 #endif
 
@@ -136,8 +160,8 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
                                    } while(0)
 
 #ifdef QLA_ENCODE
-int qla_generate_header(struct qla_encode *qla, uint8_t *data);
-int qla_init_encode(struct qla_encode *qle, uint16_t width, uint16_t height, qla_buffer_release_cb_t buf_rel, uint8_t flags);
+int qla_generate_header(struct qla_encode *qla, uint8_t *data, int font_len);
+int qla_init_encode(struct qla_encode *qle, uint16_t width, uint16_t height, qla_buffer_release_cb_t buf_rel, uint8_t flags, qla_rect_t *hole);
 int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, uint8_t *buf, size_t bufsize);
 
 #endif
@@ -151,18 +175,19 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
 
 #define QLA_GET_STATUS(status) ((status)&0xff)
 #define QLA_GET_SIZE(status) ((status)>>8)
+#define QLA_IS_EXTENDED(qla) (((qla)->width>255 || (qla)->height>255) ? 1 : 0)
+#define QLA_HEADER_LEN(qla)  (4 + (QLA_IS_EXTENDED(qla) ? 4 : 0))
 
 
 int qla_init_decode(struct qla_anim *qla, uint16_t width, uint16_t height, uint8_t *data, uint32_t data_size, uint8_t flags)
 {
   if(NULL==qla||width==0||height==0) return(-1);
-  memset(qla,0,sizeof(struct qla_anim));
-  qla->extended=(width>255 || height>255);
+  memset(qla, 0, sizeof(struct qla_anim));
   qla->data=data;
   qla->data_size=data_size;
   qla->width=width;
   qla->height=height;
-  qla->flags=flags|QLAF_NEWFRAME;
+  qla->flags=flags | QLAF_NEWFRAME;
   return(0);
 }
 
@@ -188,7 +213,7 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
   if(qla->pos>=qla->data_size) return(QLA_NEWCHUNK);
   if(QLAF_NEWRECT==(qla->flags&QLAF_NEWRECT))
   {
-    while(qla->metai<(qla->extended?8:4))
+    while(qla->metai<QLA_HEADER_LEN(qla))
     {
       qla->metab[qla->metai++] = qla->data[qla->pos++];
       if(qla->pos>=qla->data_size)
@@ -197,7 +222,7 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
         return(QLA_NEWCHUNK);
       }
     }
-    if(qla->extended)
+    if(QLA_IS_EXTENDED(qla))
     {
       qla->rect.x=qla->metab[0]<<8 | qla->metab[1];
       qla->rect.y=qla->metab[2]<<8 | qla->metab[3];
@@ -255,7 +280,8 @@ qla_status_t qla_decode(struct qla_anim *qla, uint8_t *dest, int bufsize)
 
 int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8_t *data, uint32_t data_size)
 {
-  if(hdr_size<QLA_HEADER_LEN||NULL==hdr||NULL==qla) return(-1);
+  int ret=0;
+  if(hdr_size<QLA_MIN_HEADER_LEN||NULL==hdr||NULL==qla) return(-1);
   if(	hdr[0]!=QLA_MAGIC0
     ||	hdr[1]!=QLA_MAGIC1
     ||	hdr[2]!=QLA_MAGIC2
@@ -264,7 +290,26 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
   int height=hdr[6]<<8 | hdr[7];
   if((hdr[8]&~QLAFM_FLAGMASK)!=QLA_PIXEL_FORMAT) return(-1);
   if(hdr[9]!=qli_index_code[QLI_INDEX_SIZE]) return(-1);
-  return(qla_init_decode(qla, width, height, data, data_size, hdr[8]&QLAFM_FLAGMASK));
+  uint8_t flags = hdr[8]&QLAFM_FLAGMASK;
+  if((flags & QLAF_HOLE) != 0 && hdr_size < QLA_MIN_HEADER_LEN + QLA_HOLE_HEADER_LEN) return(QLA_MIN_HEADER_LEN + QLA_HOLE_HEADER_LEN - hdr_size);
+  ret = qla_init_decode(qla, width, height, data, data_size, flags);
+  if(ret != 0) return(ret);
+
+  #if QLA_HOLE == 1
+  if((flags & QLAF_HOLE) != 0)
+  {
+      qla->hole_x   = hdr[10]<<8 | hdr[11];
+      qla->hole_y   = hdr[12]<<8 | hdr[13];
+      qla->hole_w   = hdr[14]<<8 | hdr[15];
+      qla->hole_h   = hdr[16]<<8 | hdr[17];
+      qla->font_len = hdr[18]<<8 | hdr[19];
+      ret=0;
+  }
+  #else
+  if((flags&QLAF_HOLE)!=0) return(-1);
+  #endif
+
+  return(ret);
 }
 
 #endif
@@ -364,15 +409,28 @@ static int qla_get_dirty_rects(int width, int height, struct qla_rect clean[], i
   return(work_count);
 }
 
-int qla_init_encode(struct qla_encode *qle, uint16_t width, uint16_t height, qla_buffer_release_cb_t buf_rel, uint8_t flags)
+int qla_init_encode(struct qla_encode *qle, uint16_t width, uint16_t height, qla_buffer_release_cb_t buf_rel, uint8_t flags, qla_rect_t *hole)
 {
   if(qle==NULL || width==0 || height==0) return(-1);
+  if((flags&QLAF_HOLE)!=0)
+  {
+    if(hole==NULL || hole->w==0 || hole->h==0 || hole->x>=width || hole->y>=height || hole->w>width-hole->x || hole->h>height-hole->y) return(-1);
+  }
+  memset(qle, 0, sizeof(struct qla_encode));
   qle->width=width;
   qle->height=height;
-  qle->xor_buffer=malloc(width*height);
   qle->curr_frame=NULL;
   qle->buf_rel_cb=buf_rel;
   qle->flags=flags;
+  if((qle->flags&QLAF_HOLE)!=0)
+  {
+    qle->hole_x=hole->x;
+    qle->hole_y=hole->y;
+    qle->hole_w=hole->w;
+    qle->hole_h=hole->h;
+    qle->hole_data=calloc(qle->hole_w*qle->hole_h, sizeof(uint32_t));
+  }
+  qle->xor_buffer=malloc(width*height);
   return(0);
 }
 
@@ -382,9 +440,10 @@ void qla_destroy_encode(struct qla_encode *qle)
   if(NULL!=qle->xor_buffer) free(qle->xor_buffer);
   qle->xor_buffer=NULL;
   if(NULL!=qle->buf_rel_cb && NULL!=qle->curr_frame) qle->buf_rel_cb(qle->curr_frame);
+  if(NULL!=qle->hole_data) free(qle->hole_data);
 }
 
-int qla_generate_header(struct qla_encode *qle, uint8_t *data)
+int qla_generate_header(struct qla_encode *qle, uint8_t *data, int font_len)
 {
   if(NULL==qle || NULL==data) return(-1);
   int i=0;
@@ -398,7 +457,21 @@ int qla_generate_header(struct qla_encode *qle, uint8_t *data)
   data[i++]=qle->height&0xff;
   data[i++]=QLA_PIXEL_FORMAT | (qle->flags&QLAFM_FLAGMASK);
   data[i++]=qli_index_code[QLI_INDEX_SIZE];
-  return(0);
+  if( (qle->flags&QLAF_HOLE) != 0)
+  {
+    // add hole information only if flag is enabled
+    data[i++]=qle->hole_x>>8;
+    data[i++]=qle->hole_x&0xff;
+    data[i++]=qle->hole_y>>8;
+    data[i++]=qle->hole_y&0xff;
+    data[i++]=qle->hole_w>>8;
+    data[i++]=qle->hole_w&0xff;
+    data[i++]=qle->hole_h>>8;
+    data[i++]=qle->hole_h&0xff;
+    data[i++]=font_len>>8;
+    data[i++]=font_len&0xff;
+  }
+  return(i);
 }
 
 static void qla_largest_histogram(int *heights, int w, int row, struct qla_rect *best_rect)
@@ -480,9 +553,27 @@ static void qla_bytemap_fillrect(uint8_t *buf, int width, int height, int v, int
   for(int y_=y;y_<y+h;y_++) for(int x_=x;x_<x+w;x_++) buf[y_*width+x_]=v;
 }
 
+static int stridecpy(uint32_t *tgt, uint32_t *src, uint32_t w, uint32_t h, uint32_t tgt_stride, uint32_t src_stride)
+{
+  if(NULL==src||NULL==tgt||0==tgt_stride||0==src_stride) return(-1);
+  if(w==0||h==0) return(0);
+  uint32_t *s=src;
+  uint32_t *t=tgt;
+  for(unsigned y=0;y<h;y++)
+  {
+    // scanline copy
+    memcpy(t, s, sizeof(uint32_t)*w);
+    s+=src_stride;
+    t+=tgt_stride;
+  }
+  return(0);
+}
+
 int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, uint8_t *buf, size_t bufsize)
 {
-  int area,val,hdr,i;
+  int area,val;
+  unsigned i;
+  size_t hdr;
   int pos=0,encoded;
   struct qla_rect rct;
   int extended;
@@ -499,7 +590,7 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
   }
   extended=(qle->width>255 || qle->height>255);
   hdr=(extended ? sizeof(uint16_t)*4 : sizeof(uint8_t)*4);
-  if(bufsize < (size_t)(2+hdr)) return(-1);
+  if(bufsize < (2+hdr)) return(-1);
   if(NULL==( singles = calloc(1, qle->width*qle->height) )) return(-1);
   // write frame header (delay after frame) -- this is where the qla_anim pointer should be set
   buf[pos++] = (delay_ms>>8) & 0xff;
@@ -508,7 +599,7 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
   if(qle->curr_frame==NULL)
   {
     // first frame
-    if(bufsize-pos < (size_t)(2*hdr)) return(-1);
+    if(bufsize-pos < (2*hdr)) return(-1);
     // store dirty rectangle as 0,0,width,height
     if(extended) buf[pos++] = 0;
     buf[pos++] = 0;
@@ -518,6 +609,11 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
     buf[pos++] = qle->width&0xff;
     if(extended) buf[pos++] = qle->height>>8&0xff;
     buf[pos++] = qle->height&0xff;
+    // save hole if enabled
+    if((qle->flags&QLAF_HOLE)!=0)
+    {
+      stridecpy(qle->hole_data, &rgb[qle->width*qle->hole_y+qle->hole_x], qle->hole_w, qle->hole_h, qle->hole_w, qle->width);
+    }
     // store qli encoded frame
     encoded=qli_encode(&rgb[0], qle->width, qle->height, &buf[pos], bufsize-pos, qle->width*sizeof(uint32_t));
     if(encoded<0 || (size_t)encoded>bufsize-pos-hdr) return(-1);
@@ -528,6 +624,11 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
   else
   {
     // subsequent frames
+    // restore invariant hole if hole is enabled
+    if((qle->flags&QLAF_HOLE)!=0)
+    {
+      stridecpy(&rgb[qle->width*qle->hole_y+qle->hole_x], qle->hole_data, qle->hole_w, qle->hole_h, qle->width, qle->hole_w);
+    }
     //int ref_size=
     qli_encode(&rgb[0], qle->width, qle->height, NULL, 0, qle->width*sizeof(uint32_t));
     // 1. make xor with curr_frame and rgb
@@ -540,15 +641,26 @@ int qla_encode_frame(struct qla_encode *qle, uint32_t *rgb, uint16_t delay_ms, u
     struct qla_rect clean[QLA_MAX_CLEAN_RECTS]={0};
     int clean_cnt;
     int min_area;
-    for(clean_cnt=1,val=1,area=1; area>0 && (bufsize-pos)>hdr && clean_cnt<QLA_MAX_CLEAN_RECTS; val++,clean_cnt++)
+    int clean_base=0;
+    if((qle->flags&QLAF_HOLE)!=0)
+    {
+      rct.x=qle->hole_x;
+      rct.y=qle->hole_y;
+      rct.w=qle->hole_w;
+      rct.h=qle->hole_h;
+      clean[clean_base++]=rct;
+    }
+    for(clean_cnt=clean_base,val=1,area=1; area>0 && (bufsize-pos)>hdr && clean_cnt<QLA_MAX_CLEAN_RECTS; val++,clean_cnt++)
     {
       area=qla_largest_rect(qle->xor_buffer, qle->width, qle->height, &rct);
       qla_bytemap_fillrect(qle->xor_buffer, qle->width, qle->height, val, rct.x, rct.y, rct.w, rct.h);
       clean[clean_cnt]=rct;
       if(old_dirty) free(old_dirty);
       old_dirty=new_dirty;
-      new_dirty=calloc(QLA_MAX_DIRTIES(clean_cnt)+1, sizeof(struct qla_rect));
-      qla_get_dirty_rects(qle->width, qle->height, clean, clean_cnt, new_dirty, QLA_MAX_DIRTIES(clean_cnt), &min_area);
+      int nclean = clean_cnt + 1;
+      int ndirty = QLA_MAX_DIRTIES(nclean);
+      new_dirty=calloc(ndirty+1, sizeof(*new_dirty));
+      qla_get_dirty_rects(qle->width, qle->height, clean, nclean, new_dirty, ndirty, &min_area);
       if(min_area<QLA_MIN_DIRTY_AREA) break;
     }
     if(old_dirty) dirty=old_dirty;
