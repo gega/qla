@@ -46,10 +46,11 @@
 #define QLA_HOLE 0
 #endif
 
-#define QLA_MAGIC0 ('q')
-#define QLA_MAGIC1 ('l')
-#define QLA_MAGIC2 ('a')
-#define QLA_MAGIC3 ('1')
+#define QLA_MAGIC0   ('q')
+#define QLA_MAGIC1   ('l')
+#define QLA_MAGIC2   ('a')
+#define QLA_MAGIC3_1 ('1')
+#define QLA_MAGIC3_2 ('2')
 
 #define QLA_MIN_HEADER_LEN (4+4+2)
 #define QLA_HOLE_HEADER_LEN  (10)
@@ -285,7 +286,7 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
   if(	hdr[0]!=QLA_MAGIC0
     ||	hdr[1]!=QLA_MAGIC1
     ||	hdr[2]!=QLA_MAGIC2
-    ||	hdr[3]!=QLA_MAGIC3 ) return(-1);
+    ||	( hdr[3]!=QLA_MAGIC3_1 || hdr[3]!=QLA_MAGIC3_2 ) ) return(-1);
   int width =hdr[4]<<8 | hdr[5];
   int height=hdr[6]<<8 | hdr[7];
   if((hdr[8]&~QLAFM_FLAGMASK)!=QLA_PIXEL_FORMAT) return(-1);
@@ -450,7 +451,7 @@ int qla_generate_header(struct qla_encode *qle, uint8_t *data, int font_len)
   data[i++]=QLA_MAGIC0;
   data[i++]=QLA_MAGIC1;
   data[i++]=QLA_MAGIC2;
-  data[i++]=QLA_MAGIC3;
+  data[i++]=(qle->flags&QLAF_HOLE) == 0 ? QLA_MAGIC3_1 : QLA_MAGIC3_2;
   data[i++]=qle->width>>8;
   data[i++]=qle->width&0xff;
   data[i++]=qle->height>>8;
