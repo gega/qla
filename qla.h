@@ -286,7 +286,12 @@ int qla_init_header(struct qla_anim *qla, uint8_t *hdr, uint32_t hdr_size, uint8
   if(	hdr[0]!=QLA_MAGIC0
     ||	hdr[1]!=QLA_MAGIC1
     ||	hdr[2]!=QLA_MAGIC2
-    ||	( hdr[3]!=QLA_MAGIC3_1 || hdr[3]!=QLA_MAGIC3_2 ) ) return(-1);
+    #if QLA_HOLE == 1
+    ||	( hdr[3]!=QLA_MAGIC3_1 && hdr[3]!=QLA_MAGIC3_2 )
+    #else
+    ||  hdr[3]!=QLA_MAGIC3_1
+    #endif
+    ) return(-1);
   int width =hdr[4]<<8 | hdr[5];
   int height=hdr[6]<<8 | hdr[7];
   if((hdr[8]&~QLAFM_FLAGMASK)!=QLA_PIXEL_FORMAT) return(-1);
